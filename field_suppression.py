@@ -15,6 +15,37 @@ def mcrit(B):
     return 6.9233445 + 4.2990807 * np.log(B) - 0.1794699 * np.log(B)**2 + 0.0025782 * np.log(B)**3
 
 
+def Bfield_decay(B, Mdot, deltaT, mb=1e-4 * u.M_sun):
+
+    return B / (1 + Mdot.to(u.g/u.s) * deltaT.to(u.s) / mb.to(u.g))
+
+
+def Bfield_decay_Zhang(B, Mdot, deltaT, Mcrust=0.2 * u.M_sun, xi=1):
+    x0_2 = (Bf/B)**(4/7)
+    C = 1 + np.sqrt(1 - x0_2)
+    deltaM = Mdot.to(u.g/u.s) * deltaT
+    y = 2 * xi * deltaM / (7 * Mcrust.to(u.g))
+    return Bf / (1 - (C / np.exp(y) - 1)**2)**(7/4)
+
+
+def deltaP(torque, deltaT, P, I):
+
+    return (-torque * deltaT * P**2 / (2* np.pi * I)).decompose(bases=[u.s])
+
+
+def bottom_field(R_NS):
+    """Computes the bottom magnetic field according to Zhang & Kojima 2006 Equation 18 but assuming outflows within Rsph and assuming there's no advection
+    The magnetospheric radius is taken from Middleton & Gurpide +2022
+
+    Parameters
+    ----------
+    R_NS: quantity
+        Radius of the NS
+    """
+    return (R_NS.to(u.cm).value / (4.2 * 10**7))**(9/4) * 10**12 * u.G
+
+
+
 ap = argparse.ArgumentParser(description='Compute decaying field and period due to mass accreton rate in super-critical regime')
 
 ap.add_argument("-m", "--mdot", nargs='?', help="Mdot in Eddington ratio", type=float, default=10)
@@ -22,7 +53,6 @@ ap.add_argument("-t", "--tmax", nargs='?', help="Maximum time in years", type=fl
 ap.add_argument("-p", "--period", nargs='?', help="Starting period in seconds", type=float, default=10)
 ap.add_argument("-B", "--field", nargs='?', help="Starting magnetic field value", type=float, default=10**14)
 args = ap.parse_args()
-
 
 home = os.getenv("HOME")
 
@@ -32,26 +62,20 @@ outdir = "field_suppression"
 if not os.path.isdir(outdir):
     os.mkdir(outdir)
 
-
-def Bfield(B, Mdot, deltaT, mb=1e-4 * u.M_sun):
-
-    return B / (1 + Mdot.to(u.g/u.s) * deltaT.to(u.s) / mb.to(u.g))
-
-
-def deltaP(torque, deltaT, P, I):
-
-    return (-torque * deltaT * P**2 / (2* np.pi * I)).decompose(bases=[u.s])
-
-
 B_init = args.field * u.G
 P_init = args.period * u.s
 M_NS = 1.4 * M_sun
 NS = NS(P_NS = P_init.value, Pso = 0, M=M_NS)
 
+Bf = bottom_field(NS.R_NS)
+
+print("Bottom magnetic field: %.2E" % Bf.value)
+
 mdot = args.mdot
 
 print("Running for mdot =  %.1f, P = %.1f s, B = %.2E and Tmax = %.1f yr" % (mdot, args.period, args.field, args.tmax))
-deltaT = 1 * u.yr
+
+deltaT = 0.5 * u.yr
 
 times = np.arange(0, args.tmax, deltaT.to(u.yr).value) * u.yr
 
@@ -64,17 +88,23 @@ Mdot_acc = np.zeros(steps) * u.Msun / u.yr
 propeller = np.ones(steps)
 start = time.time()
 pulsed = np.ones(steps)
-Riscos = np.ones(steps) * NS.Risco.unit
-Riscos[0] = NS.Risco
+Riscos = np.ones(steps) * NS.Risco
 
+Mdot = mdot * NS.Medd.to(u.g/u.s) # mdot transferred is constant, even if MdotEdd increases
+
+decay_keyword = "Zhang"
+
+if decay_keyword=="Zhang":
+    decay_equation = Bfield_decay_Zhang
+elif decay_keyword=="Igoshev":
+    decay_equation = Bfield_decay
 
 for i, t in enumerate(times[1:], 1):
-    # update the period so that we get a need Rco and Risco as well as Mdot
+    # update the period so that we get a new Rco and Risco as well as MdotEdd
     NS.P_NS(P_t[i - 1].value) # this recalculates Rco
     Risco = NS.Risco
     Riscos[i] = Risco
-    Mdot = mdot * NS.Medd.to(u.g/u.s)
-    Rsph = 5/3 * mdot * NS.Risco
+    Rsph = 5/3 * mdot * Risco
     Rmag = magnetospheric_radius_ls(Mdot, B[i-1], NS.M, NS.R_NS)
 
     # SS73 regime
@@ -89,23 +119,25 @@ for i, t in enumerate(times[1:], 1):
     else:
         Mdot_Rm = Mdot
     # the angular momentum transfer depends on mdot at Rmag, regardless of the critical value, which is set at the NS
+
     tau = torque(Mdot_Rm, Rmag, NS.Rco * Risco, NS.M)
     Pincr = deltaP(tau, deltaT, P_t[i-1], NS.I)
-    P_t[i] = Pincr + P_t[i-1]
-
-    if tau < 0: # If tau is negative, we entered propeller, P changes but B does not
+    P_t[i] = P_t[i-1] + Pincr
+    if Pincr > 0: # If P increases, we entered propeller, P changes but B does not
         B[i] = B[i-1]
         propeller[i] = True
         Mdot_acc[i] = 0
-    # accretion with magnetosphere
-    elif tau > 0 and Rmag > Risco:
+
+    # accretion with magnetosphere (P decreases)
+    elif Pincr < 0 and Rmag > Risco:
         propeller[i]= False
         # if we have exceeded the critical value, readjust for magnetic field suppression
         critical_mdot = np.exp(mcrit(B[i-1].value)) * (u.g/u.s)
         Mdot_Rm = critical_mdot if Mdot_Rm.to(u.g/u.s) > critical_mdot else Mdot_Rm
-        B[i] = Bfield(B[i-1], Mdot_Rm, deltaT)
+        B[i] = decay_equation(B[i-1], Mdot_Rm, deltaT)
         Mdot_acc[i] = Mdot_Rm
-    # Rmag at Isco already
+
+    # Rmag at Isco already, there's no B decay
     else:
         B[i] = B[i-1]
         Mdot_acc[i] = Mdot_Rm
@@ -119,10 +151,17 @@ np.savetxt("%s/mdot_%.1f_P_%.1f_B_%.2E.dat" %(outdir, mdot, P_init.value, args.f
 end = time.time()
 time_taken = end - start
 
+print("Done")
+
 print("Time taken: %.2f s" % time_taken)
+
+outdir = "%s/mdot_%.1f_P_%.1f_B_%.2E_%s" % (outdir,  mdot, P_init.value, args.field, decay_keyword)
+if not os.path.isdir(outdir):
+    os.mkdir(outdir)
+
+
 print("Adding up mdot")
 M_acc = np.cumsum(Mdot_acc *  deltaT)
-print("Done")
 fig, axes = plt.subplots(4, 1, sharex=True, gridspec_kw={"hspace":0.2})
 ax = axes[0]
 scaling = args.tmax
@@ -154,14 +193,16 @@ ax.set_xscale("log")
 ax.set_xlabel("Time (10$^5$ yr)")
 ax.set_yscale("log")
 ax.set_xscale("log")
-plt.savefig("%s/mdot_%.1f_P_%.1f_B_%.2E.png" % (outdir, mdot, P_init.value, args.field))
+plt.savefig("%s/multiplot.png" % (outdir))
 
 plt.figure()
 plt.scatter(times.value/ scaling, Riscos.to(u.km).value)
 plt.ylabel("$R_{isco}$ (km)")
 plt.xlabel("Time (10$^5$ yr)")
 plt.xscale("log")
-plt.savefig("%s/isco_%.1f_P_%.1f_B_%.2E.png" % (outdir, mdot, P_init.value, args.field))
+ax = plt.gca()
+ax.get_yaxis().get_major_formatter().set_useOffset(False)
+plt.savefig("%s/isco.png" % (outdir))
 
 if False:
     ax2 = ax.twiny()
@@ -175,3 +216,4 @@ if False:
     xticks2labels = ["%.1E" % (m) for m in maccs]
     ax2.set_xticklabels(xticks2labels)
     ax2.set_xlim(ax.get_xlim())
+print("Save to %s" % outdir)
