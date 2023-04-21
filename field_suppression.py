@@ -16,11 +16,35 @@ def mcrit(B):
 
 
 def Bfield_decay(B, Mdot, deltaT, mb=1e-4 * u.M_sun):
+    """Returns the new B field"""
+    deltaM = Mdot.to(u.g/u.s) * deltaT
+    return B / (1 + deltaM / mb.to(u.g))
 
-    return B / (1 + Mdot.to(u.g/u.s) * deltaT.to(u.s) / mb.to(u.g))
+
+def Bfield_decay_Payne(B, Mdot, deltaT, mb=4.6 *10**-5 * u.M_sun, mc=1.2 * 10**-6  * u.M_sun):
+    """Returns the new B field after accreting Mdot over delta T
+
+    Parameters
+    ----------
+    B: astropy.quantity
+        Initial magnetic field
+    """
+    deltaM = Mdot.to(u.g/u.s) * deltaT
+
+    if Macc_accum.to(u.g) < (10**-4 * u.M_sun).to(u.g):
+        return B *  (1 - deltaM / mc.to(u.g))
+    else:
+        return B *  (deltaM / mb.to(u.g)) ** (-9/4) # 9/4 = 2.25
 
 
 def Bfield_decay_Zhang(B, Mdot, deltaT, Mcrust=0.2 * u.M_sun, xi=1):
+    """Returns the new B field
+
+    Parameters
+    ----------
+    B: astropy.quantity
+        Initial magnetic field
+    """
     x0_2 = (Bf/B)**(4/7)
     C = 1 + np.sqrt(1 - x0_2)
     deltaM = Mdot.to(u.g/u.s) * deltaT
@@ -48,10 +72,10 @@ def bottom_field(R_NS):
 
 ap = argparse.ArgumentParser(description='Compute decaying field and period due to mass accreton rate in super-critical regime')
 
-ap.add_argument("-m", "--mdot", nargs='?', help="Mdot in Eddington ratio", type=float, default=10)
-ap.add_argument("-t", "--tmax", nargs='?', help="Maximum time in years", type=float, default=1e5)
-ap.add_argument("-p", "--period", nargs='?', help="Starting period in seconds", type=float, default=10)
-ap.add_argument("-B", "--field", nargs='?', help="Starting magnetic field value", type=float, default=10**14)
+ap.add_argument("-m", "--mdot", nargs='?', help="Mdot in Eddington ratio. Default 10", type=float, default=10)
+ap.add_argument("-t", "--tmax", nargs='?', help="Maximum time in years. Default 1e5 yr", type=float, default=1e5)
+ap.add_argument("-p", "--period", nargs='?', help="Starting period in seconds. Default 10s", type=float, default=10)
+ap.add_argument("-B", "--field", nargs='?', help="Starting magnetic field value in G. Default 10**14 G", type=float, default=10**14)
 args = ap.parse_args()
 
 home = os.getenv("HOME")
@@ -89,15 +113,18 @@ propeller = np.ones(steps)
 start = time.time()
 pulsed = np.ones(steps)
 Riscos = np.ones(steps) * NS.Risco
+Macc_accum = 0  * u.g
 
 Mdot = mdot * NS.Medd.to(u.g/u.s) # mdot transferred is constant, even if MdotEdd increases
 
-decay_keyword = "Zhang"
+decay_keyword = "Payne"
 
 if decay_keyword=="Zhang":
     decay_equation = Bfield_decay_Zhang
 elif decay_keyword=="Igoshev":
     decay_equation = Bfield_decay
+elif decay_keyword == "Payne":
+    decay_equation = Bfield_decay_Payne
 
 for i, t in enumerate(times[1:], 1):
     # update the period so that we get a new Rco and Risco as well as MdotEdd
@@ -126,7 +153,7 @@ for i, t in enumerate(times[1:], 1):
     if Pincr > 0: # If P increases, we entered propeller, P changes but B does not
         B[i] = B[i-1]
         propeller[i] = True
-        Mdot_acc[i] = 0
+        Mdot_Rm = 0 * u.g / u.s
 
     # accretion with magnetosphere (P decreases)
     elif Pincr < 0 and Rmag > Risco:
@@ -135,12 +162,13 @@ for i, t in enumerate(times[1:], 1):
         critical_mdot = np.exp(mcrit(B[i-1].value)) * (u.g/u.s)
         Mdot_Rm = critical_mdot if Mdot_Rm.to(u.g/u.s) > critical_mdot else Mdot_Rm
         B[i] = decay_equation(B[i-1], Mdot_Rm, deltaT)
-        Mdot_acc[i] = Mdot_Rm
 
     # Rmag at Isco already, there's no B decay
     else:
         B[i] = B[i-1]
-        Mdot_acc[i] = Mdot_Rm
+
+    Mdot_acc[i] = Mdot_Rm
+    Macc_accum += Mdot_Rm.to(u.g / u.s) * deltaT.to(u.s)
 
     print("Progress: %d/%d" % (i, steps), end="\r")
 
