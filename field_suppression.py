@@ -69,9 +69,9 @@ def bottom_field(R_NS):
     return (R_NS.to(u.cm).value / (4.2 * 10**7))**(9/4) * 10**12 * u.G
 
 
+decay_keyword = "Payne"
 
 ap = argparse.ArgumentParser(description='Compute decaying field and period due to mass accreton rate in super-critical regime')
-
 ap.add_argument("-m", "--mdot", nargs='?', help="Mdot in Eddington ratio. Default 10", type=float, default=10)
 ap.add_argument("-t", "--tmax", nargs='?', help="Maximum time in years. Default 1e5 yr", type=float, default=1e5)
 ap.add_argument("-p", "--period", nargs='?', help="Starting period in seconds. Default 10s", type=float, default=10)
@@ -85,6 +85,12 @@ plt.style.use('%s/.config/matplotlib/stylelib/paper.mplstyle' % home)
 outdir = "field_suppression"
 if not os.path.isdir(outdir):
     os.mkdir(outdir)
+
+outdir = "%s/mdot_%.1f_P_%.1f_B_%.2E_%s" % (outdir,  args.mdot, args.period, args.field, decay_keyword)
+
+if not os.path.isdir(outdir):
+    os.mkdir(outdir)
+
 
 B_init = args.field * u.G
 P_init = args.period * u.s
@@ -109,15 +115,13 @@ B = B_init * np.ones(steps)
 P_t = P_init * np.ones(steps)
 # variables to be filled
 Mdot_acc = np.zeros(steps) * u.Msun / u.yr
-propeller = np.ones(steps)
-start = time.time()
+propeller = np.zeros(steps)
+torques = np.zeros(steps)
 pulsed = np.ones(steps)
 Riscos = np.ones(steps) * NS.Risco
 Macc_accum = 0  * u.g
 
 Mdot = mdot * NS.Medd.to(u.g/u.s) # mdot transferred is constant, even if MdotEdd increases
-
-decay_keyword = "Payne"
 
 if decay_keyword=="Zhang":
     decay_equation = Bfield_decay_Zhang
@@ -125,6 +129,8 @@ elif decay_keyword=="Igoshev":
     decay_equation = Bfield_decay
 elif decay_keyword == "Payne":
     decay_equation = Bfield_decay_Payne
+
+start = time.time()
 
 for i, t in enumerate(times[1:], 1):
     # update the period so that we get a new Rco and Risco as well as MdotEdd
@@ -134,10 +140,10 @@ for i, t in enumerate(times[1:], 1):
     Rsph = 5/3 * mdot * Risco
     Rmag = magnetospheric_radius_ls(Mdot, B[i-1], NS.M, NS.R_NS)
 
-    # SS73 regime
+    # SS73 supercritical regime
     if Rmag < Rsph:
         Rmag = 4.2 * 10**7 * (B[i-1].to(u.G).value / 10**12) ** (4/9) * u.cm
-        if Rmag < Risco: # non magnetic accretion, B field decay
+        if Rmag < Risco: # non magnetic accretion, no B field decay
             Rmag = Risco
             pulsed[i] = 0
 
@@ -145,11 +151,13 @@ for i, t in enumerate(times[1:], 1):
     # "subcritical" accretion
     else:
         Mdot_Rm = Mdot
-    # the angular momentum transfer depends on mdot at Rmag, regardless of the critical value, which is set at the NS
-
+    # the angular momentum transfer depends on mdot at Rmag, regardless of the
+    # critical value, which is set at the NS
     tau = torque(Mdot_Rm, Rmag, NS.Rco * Risco, NS.M)
     Pincr = deltaP(tau, deltaT, P_t[i-1], NS.I)
+    torques[i] = tau.value
     P_t[i] = P_t[i-1] + Pincr
+
     if Pincr > 0: # If P increases, we entered propeller, P changes but B does not
         B[i] = B[i-1]
         propeller[i] = True
@@ -157,7 +165,6 @@ for i, t in enumerate(times[1:], 1):
 
     # accretion with magnetosphere (P decreases)
     elif Pincr < 0 and Rmag > Risco:
-        propeller[i]= False
         # if we have exceeded the critical value, readjust for magnetic field suppression
         critical_mdot = np.exp(mcrit(B[i-1].value)) * (u.g/u.s)
         Mdot_Rm = critical_mdot if Mdot_Rm.to(u.g/u.s) > critical_mdot else Mdot_Rm
@@ -172,9 +179,9 @@ for i, t in enumerate(times[1:], 1):
 
     print("Progress: %d/%d" % (i, steps), end="\r")
 
-outputs = np.array([B[:-1], P_t[:-1], Mdot_acc[:-1].to(u.Msun / u.yr), times[:-1]])
+outputs = np.array([B[:-1], P_t[:-1], Mdot_acc[:-1].to(u.Msun / u.yr), torques[1:], propeller[1:], pulsed[1:], times[:-1]])
 np.savetxt("%s/mdot_%.1f_P_%.1f_B_%.2E.dat" %(outdir, mdot, P_init.value, args.field), outputs.T, delimiter="\t",
-           fmt="%.5E", header="B\tP\tMacc\tt")
+           fmt="%.5E", header="B\tP\tMacc\ttorque_cm2_g_s2\tpropeller\tpulsed\tt")
 
 end = time.time()
 time_taken = end - start
@@ -182,10 +189,6 @@ time_taken = end - start
 print("Done")
 
 print("Time taken: %.2f s" % time_taken)
-
-outdir = "%s/mdot_%.1f_P_%.1f_B_%.2E_%s" % (outdir,  mdot, P_init.value, args.field, decay_keyword)
-if not os.path.isdir(outdir):
-    os.mkdir(outdir)
 
 
 print("Adding up mdot")
@@ -226,7 +229,7 @@ plt.savefig("%s/multiplot.png" % (outdir))
 plt.figure()
 plt.scatter(times.value/ scaling, Riscos.to(u.km).value)
 plt.ylabel("$R_{isco}$ (km)")
-plt.xlabel("Time (10$^5$ yr)")
+plt.xlabel("Time (%.0e yr)" % (scaling))
 plt.xscale("log")
 ax = plt.gca()
 ax.get_yaxis().get_major_formatter().set_useOffset(False)
