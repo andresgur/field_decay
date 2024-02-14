@@ -22,11 +22,14 @@ def Bfield_decay(B, Mdot, deltaT, mb=1e-4 * u.M_sun):
 
 
 def Bfield_decay_Payne(B, Mdot, deltaT, mb=4.6 *10**-5 * u.M_sun, mc=1.2 * 10**-6  * u.M_sun):
-    """Returns the new B field after accreting Mdot over delta T
+    """Returns the new B field after accreting Mdot over delta T.
+
+    Equation 8 in Payne and Melatos 2007
+    Equation 35 in Payne 2004
 
     Parameters
     ----------
-    B: astropy.quantity
+    B: astropy.quantity or float
         Initial magnetic field
     """
     deltaM = Mdot.to(u.g/u.s) * deltaT
@@ -34,7 +37,7 @@ def Bfield_decay_Payne(B, Mdot, deltaT, mb=4.6 *10**-5 * u.M_sun, mc=1.2 * 10**-
     if Macc_accum.to(u.g) < (10**-4 * u.M_sun).to(u.g):
         return B *  (1 - deltaM / mc.to(u.g))
     else:
-        return B *  (deltaM / mb.to(u.g)) ** (-9/4) # 9/4 = 2.25
+        return B *  (deltaM / mb.to(u.g)) ** (-2.25) # 9/4 = 2.25
 
 
 def Bfield_decay_Zhang(B, Mdot, deltaT, Mcrust=0.2 * u.M_sun, xi=1):
@@ -42,7 +45,7 @@ def Bfield_decay_Zhang(B, Mdot, deltaT, Mcrust=0.2 * u.M_sun, xi=1):
 
     Parameters
     ----------
-    B: astropy.quantity
+    B: astropy.quantity or float
         Initial magnetic field
     """
     x0_2 = (Bf/B)**(4/7)
@@ -69,7 +72,7 @@ def bottom_field(R_NS):
     return (R_NS.to(u.cm).value / (4.2 * 10**7))**(9/4) * 10**12 * u.G
 
 
-decay_keyword = "Payne"
+decay_keyword = "Igoshev"
 
 ap = argparse.ArgumentParser(description='Compute decaying field and period due to mass accreton rate in super-critical regime')
 ap.add_argument("-m", "--mdot", nargs='?', help="Mdot in Eddington ratio. Default 10", type=float, default=10)
@@ -108,17 +111,20 @@ print("Running for mdot =  %.1f, P = %.1f s, B = %.2E and Tmax = %.1f yr" % (mdo
 deltaT = 0.5 * u.yr
 
 times = np.arange(0, args.tmax, deltaT.to(u.yr).value) * u.yr
-
-steps = len(times)
+steps = 1000
 print("Number of steps: %d" % steps)
-B = B_init * np.ones(steps)
+
+times = np.geomspace(0.1, args.tmax, steps) # in years
+deltaT = np.diff(times) << u.yr
+
+B = B_init.value * np.ones(steps) # G
 P_t = P_init * np.ones(steps)
 # variables to be filled
 Mdot_acc = np.zeros(steps) * u.Msun / u.yr
 propeller = np.zeros(steps)
 torques = np.zeros(steps)
 pulsed = np.ones(steps)
-Riscos = np.ones(steps) * NS.Risco
+Riscos = np.ones(steps) * NS.Risco.to(u.cm).value
 Macc_accum = 0  * u.g
 
 Mdot = mdot * NS.Medd.to(u.g/u.s) # mdot transferred is constant, even if MdotEdd increases
@@ -135,14 +141,14 @@ start = time.time()
 for i, t in enumerate(times[1:], 1):
     # update the period so that we get a new Rco and Risco as well as MdotEdd
     NS.P_NS(P_t[i - 1].value) # this recalculates Rco
-    Risco = NS.Risco
+    Risco = NS.Risco.value # cm
     Riscos[i] = Risco
     Rsph = 5/3 * mdot * Risco
-    Rmag = magnetospheric_radius_ls(Mdot, B[i-1], NS.M, NS.R_NS)
+    Rmag = magnetospheric_radius_ls(Mdot, B[i-1] * u.G, NS.M, NS.R_NS).value # cm
 
     # SS73 supercritical regime
     if Rmag < Rsph:
-        Rmag = 4.2 * 10**7 * (B[i-1].to(u.G).value / 10**12) ** (4/9) * u.cm
+        Rmag = 4.2 * 10**7 * (B[i-1] / 10**12) ** (4/9) # cm
         if Rmag < Risco: # non magnetic accretion, no B field decay
             Rmag = Risco
             pulsed[i] = 0
@@ -153,8 +159,9 @@ for i, t in enumerate(times[1:], 1):
         Mdot_Rm = Mdot
     # the angular momentum transfer depends on mdot at Rmag, regardless of the
     # critical value, which is set at the NS
-    tau = torque(Mdot_Rm, Rmag, NS.Rco * Risco, NS.M)
-    Pincr = deltaP(tau, deltaT, P_t[i-1], NS.I)
+    tau = torque(Mdot_Rm, Rmag * u.cm, NS.Rco * Risco * u.cm, NS.M)
+    # deltaT is not a constant step
+    Pincr = deltaP(tau, deltaT[i-1], P_t[i-1], NS.I)
     torques[i] = tau.value
     P_t[i] = P_t[i-1] + Pincr
 
@@ -163,19 +170,20 @@ for i, t in enumerate(times[1:], 1):
         propeller[i] = True
         Mdot_Rm = 0 * u.g / u.s
 
+
     # accretion with magnetosphere (P decreases)
     elif Pincr < 0 and Rmag > Risco:
         # if we have exceeded the critical value, readjust for magnetic field suppression
-        critical_mdot = np.exp(mcrit(B[i-1].value)) * (u.g/u.s)
+        critical_mdot = np.exp(mcrit(B[i-1])) * (u.g/u.s)
         Mdot_Rm = critical_mdot if Mdot_Rm.to(u.g/u.s) > critical_mdot else Mdot_Rm
-        B[i] = decay_equation(B[i-1], Mdot_Rm, deltaT)
+        B[i] = decay_equation(B[i-1], Mdot_Rm, deltaT[i-1])
 
     # Rmag at Isco already, there's no B decay
     else:
         B[i] = B[i-1]
 
     Mdot_acc[i] = Mdot_Rm
-    Macc_accum += Mdot_Rm.to(u.g / u.s) * deltaT.to(u.s)
+    Macc_accum += Mdot_Rm.to(u.g / u.s) * deltaT[i-1].to(u.s)
 
     print("Progress: %d/%d" % (i, steps), end="\r")
 
@@ -186,17 +194,16 @@ np.savetxt("%s/mdot_%.1f_P_%.1f_B_%.2E.dat" %(outdir, mdot, P_init.value, args.f
 end = time.time()
 time_taken = end - start
 
-print("Done")
+print("Done", "\n")
 
 print("Time taken: %.2f s" % time_taken)
 
-
 print("Adding up mdot")
-M_acc = np.cumsum(Mdot_acc *  deltaT)
+M_acc = np.cumsum(Mdot_acc[:-1] *  deltaT)
 fig, axes = plt.subplots(4, 1, sharex=True, gridspec_kw={"hspace":0.2})
 ax = axes[0]
 scaling = args.tmax
-ax.plot(times[:-1].value / scaling, B[:-1])
+ax.plot(times[:-1] / scaling, B[:-1])
 #ax.fill_between(times[:-1] / scaling, 0, 1, where=propeller[:-1], alpha=0.4, transform=ax.get_xaxis_transform(), color="red")
 #ax.fill_between(times[:-1] / scaling, 0, 1, where=~pulsed[:-1], alpha=0.4, transform=ax.get_xaxis_transform(), color="red")
 ax.set_yscale("log")
@@ -205,29 +212,29 @@ ax.set_xscale("log")
 ax.set_ylabel("B (G)")
 
 ax = axes[1]
-ax.plot(times[:-1].value / scaling, P_t[:-1])
+ax.plot(times[:-1] / scaling, P_t[:-1])
 ax.set_yscale("log")
 ax.set_ylabel("P(s)")
 ax.set_xscale("log")
 
 ax = axes[2]
-ax.plot(times[:-1].value / scaling, Mdot_acc[:-1].to(u.M_sun / u.yr))
+ax.plot(times[:-1] / scaling, Mdot_acc[:-1].to(u.M_sun / u.yr))
 ax.set_yscale("log")
 ax.set_ylabel('$\dot{M}$ ($M_\odot$ / yr)')
 ax.set_xscale("log")
 
 ax = axes[3]
-ax.plot(times[:-1].value / scaling, M_acc[:-1])
+ax.plot(times[:-1] / scaling, M_acc)
 ax.set_yscale("log")
 ax.set_ylabel('Mass Acc ($M_\odot$)')
 ax.set_xscale("log")
-ax.set_xlabel("Time (10$^5$ yr)")
+ax.set_xlabel("Time (%.0e yr)" % scaling)
 ax.set_yscale("log")
 ax.set_xscale("log")
 plt.savefig("%s/multiplot.png" % (outdir))
 
 plt.figure()
-plt.scatter(times.value/ scaling, Riscos.to(u.km).value)
+plt.scatter(times / scaling, Riscos / 1000) # convert to km
 plt.ylabel("$R_{isco}$ (km)")
 plt.xlabel("Time (%.0e yr)" % (scaling))
 plt.xscale("log")
