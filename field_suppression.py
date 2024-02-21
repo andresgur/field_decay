@@ -1,10 +1,19 @@
-from formulae.accretion import *
+from accretion import *
 import numpy as np
 import astropy.units as u
 import matplotlib.pyplot as plt
 import os
 import time
 import argparse
+
+
+def magnetospheric_radius_ls(Mdot, B, M_NS=1.4 * M_sun, R_NS=10**6 * u.cm):
+    """As given by Middleton+19 accounts for super Edd accretion but no advection"""
+    Mdot_17 = Mdot.to(u.g/u.s).value / 10**17
+    mu = B.to(u.G) * R_NS.to(u.cm)**3 / (10**30 * u.G * u.cm**3)
+    rm = 2.9 * 10**8 * Mdot_17**(-2/7) * (M_NS.to(u.M_sun).value)**(-1/7) * mu**(4/7) * u.cm
+    return rm
+
 
 def mcrit(B):
     """Calculate mdot critical at which the magnetic confiment breaks due to radiation pressure according to Mushtukov
@@ -72,13 +81,12 @@ def bottom_field(R_NS):
     return (R_NS.to(u.cm).value / (4.2 * 10**7))**(9/4) * 10**12 * u.G
 
 
-decay_keyword = "Igoshev"
-
 ap = argparse.ArgumentParser(description='Compute decaying field and period due to mass accreton rate in super-critical regime')
 ap.add_argument("-m", "--mdot", nargs='?', help="Mdot in Eddington ratio. Default 10", type=float, default=10)
 ap.add_argument("-t", "--tmax", nargs='?', help="Maximum time in years. Default 1e5 yr", type=float, default=1e5)
 ap.add_argument("-p", "--period", nargs='?', help="Starting period in seconds. Default 10s", type=float, default=10)
 ap.add_argument("-B", "--field", nargs='?', help="Starting magnetic field value in G. Default 10**14 G", type=float, default=10**14)
+ap.add_argument("-d", "--decay", nargs="?", default="Payne", help="Magnetic field decay prescription. Default Payne & Melatos", choices=["Payne", "Zhang", "Igoshev"])
 args = ap.parse_args()
 
 home = os.getenv("HOME")
@@ -89,12 +97,12 @@ outdir = "field_suppression"
 if not os.path.isdir(outdir):
     os.mkdir(outdir)
 
-outdir = "%s/mdot_%.1f_P_%.1f_B_%.2E_%s" % (outdir,  args.mdot, args.period, args.field, decay_keyword)
+outdir = "%s/mdot_%.1f_P_%.1f_B_%.2E_%s" % (outdir,  args.mdot, args.period, args.field, args.decay)
 
 if not os.path.isdir(outdir):
     os.mkdir(outdir)
 
-
+decay_keyword = args.decay
 B_init = args.field * u.G
 P_init = args.period * u.s
 M_NS = 1.4 * M_sun
@@ -108,9 +116,9 @@ mdot = args.mdot
 
 print("Running for mdot =  %.1f, P = %.1f s, B = %.2E and Tmax = %.1f yr" % (mdot, args.period, args.field, args.tmax))
 
-deltaT = 0.5 * u.yr
+#deltaT = 0.5 * u.yr switched to log scale
 
-times = np.arange(0, args.tmax, deltaT.to(u.yr).value) * u.yr
+#times = np.arange(0, args.tmax, deltaT.to(u.yr).value) * u.yr
 steps = 1000
 print("Number of steps: %d" % steps)
 
@@ -140,7 +148,7 @@ start = time.time()
 
 for i, t in enumerate(times[1:], 1):
     # update the period so that we get a new Rco and Risco as well as MdotEdd
-    NS.P_NS(P_t[i - 1].value) # this recalculates Rco
+    NS.P_NS = P_t[i - 1].value # this recalculates Rco internally
     Risco = NS.Risco.value # cm
     Riscos[i] = Risco
     Rsph = 5/3 * mdot * Risco
