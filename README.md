@@ -1,2 +1,2 @@
-# middleton_2024
-Formulas for magnetic field suppression
+# field_decay
+Formulas for magnetic field suppression due to supercritical accretion
