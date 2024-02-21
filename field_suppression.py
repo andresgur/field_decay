@@ -71,14 +71,14 @@ def deltaP(torque, deltaT, P, I):
 
 def bottom_field(R_NS):
     """Computes the bottom magnetic field according to Zhang & Kojima 2006 Equation 18 but assuming outflows within Rsph and assuming there's no advection
-    The magnetospheric radius is taken from Middleton & Gurpide +2022
+    The magnetospheric radius is taken from Middleton et al. 2023
 
     Parameters
     ----------
-    R_NS: quantity
-        Radius of the NS
+    B: float
+        Magnetic field in Gauss
     """
-    return (R_NS.to(u.cm).value / (4.2 * 10**7))**(9/4) * 10**12 * u.G
+    return (R_NS.to(u.cm).value / (4.2 * 10**7))**(9/4) * 10**12
 
 
 ap = argparse.ArgumentParser(description='Compute decaying field and period due to mass accreton rate in super-critical regime')
@@ -110,7 +110,7 @@ NS = NS(P_NS = P_init.value, Pso = 0, M=M_NS)
 
 Bf = bottom_field(NS.R_NS)
 
-print("Bottom magnetic field: %.2E" % Bf.value)
+print("Bottom magnetic field: %.2E G" % Bf)
 
 mdot = args.mdot
 
