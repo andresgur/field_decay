@@ -112,8 +112,9 @@ if __name__ == "__main__":
     args = ap.parse_args()
 
     home = os.getenv("HOME")
-
-    plt.style.use('%s/.config/matplotlib/stylelib/paper.mplstyle' % home)
+    stylefile = '%s/.config/matplotlib/stylelib/paper.mplstyle' % home
+    if os.path.isfile(stylefile):
+        plt.style.use('%s/.config/matplotlib/stylelib/paper.mplstyle' % home)
 
     outdir = "field_suppression"
     if not os.path.isdir(outdir):
@@ -142,7 +143,7 @@ if __name__ == "__main__":
     #deltaT = 0.5 * u.yr switched to log scale
 
     #times = np.arange(0, args.tmax, deltaT.to(u.yr).value) * u.yr
-    steps = 15000
+    steps = 50000
     print("Number of steps: %d" % steps)
 
     times = np.geomspace(0.1, args.tmax, steps) # in years
@@ -209,7 +210,7 @@ if __name__ == "__main__":
             critical_mdot = np.exp(mcrit(B[i-1])) * (u.g/u.s)
             Mdot_Rm = critical_mdot if Mdot_Rm.to(u.g/u.s) > critical_mdot else Mdot_Rm
             # add the new matter
-            Maccumulated =  Mdot_Rm.to(u.Msun / u.s) * deltaT[i-1].to(u.s) + Macc_accum
+            Maccumulated = Mdot_Rm.to(u.Msun / u.s) * deltaT[i-1].to(u.s) + Macc_accum
             B[i] = decay_equation(B_init.value, Maccumulated) # B[i-1]
 
         # Rmag at Isco already, there's no B decay
