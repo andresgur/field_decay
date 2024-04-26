@@ -903,6 +903,27 @@ def fastness_param(Rmag, Rco):
     return (Rmag.to(u.m) / Rco.to(u.m)) ** (3/2)
 
 
+def torque_wang(Mdot, Rmag, Rco, M_NS=1.4 * M_sun, xi=1):
+    """Computes the accretion torque onto a NS according to Wang+95 (actually taken from Vasilopoulos+2018)
+
+    Parameters
+    ----------
+    Mdot: astropy.quantity
+        Instantaneous mass-accretion rate at Rmag. Units of mass/time
+    Rmag: astropy.quantity
+        Magnetospheric radius
+    Rco: astropy.quantity
+        Co-rotation radius
+    M_NS: astropy.quantity
+        Mass of the NS, defaults to 1.4 solar massess
+    xi: float
+        Dimensionless parameter of the order of unity
+    """
+    omega = fastness_param(Rmag, Rco)
+    N_0 = Mdot.to(u.g / u.s) * np.sqrt(G * M_NS * Rmag) # e.g. Ghosh & Lamb 1979 Eq 2
+    n = (7/6 - (4/3) * omega + (1/9)*omega**2) / (1 - omega)
+    return (xi * N_0 * n).decompose(bases=u.cgs.bases)
+
 def torque(Mdot, Rmag, Rco, M_NS=1.4 * M_sun, xi=1):
     """Computes the accretion torque onto a NS
 
