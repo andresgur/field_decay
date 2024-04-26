@@ -11,4 +11,11 @@ The main script `field_suppression.py` solves self-consistently the torque, magn
 
 
 
-Run the main script as `python field_suppression.py`. Use `-h` to see the list of input parameters.
+Run the main script as `python field_suppression.py`. Use `-h` to see the list of input parameters. The output .dat file contains the following columns:
+1) Magnetic field in G
+2) The spin period in seconds
+3) The instantaneous mass accreted onto the NS in Msun/yr
+4) The torque onto the NS in g cm2 / s2
+5) A flag indicating whether the NS is in propeller (1) or not (0)
+6) A flag indicating whether the NS is pulsing (1) or not (0)
+7) The time in years
