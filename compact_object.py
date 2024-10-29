@@ -11,6 +11,7 @@ Gcgs = G.to(u.cm**3/u.g/u.s**2).value
 
 ccgs = c.to(u.cm/u.s).value
 
+
 class CO():
     """Base compact object class"""
     def __init__(self, M, spin=0):
@@ -20,6 +21,13 @@ class CO():
         self._Risco = isco_radius(self.M, self._spin)
         efficiency = accretion_efficiency(self.M, self._Risco)
         self._Medd = eddington_luminosity((self.M * u.g).to(u.M_sun).value)/ ccgs** 2 / efficiency
+    
+    def __str__(self):
+        return (f"Compact Object (CO):\n"
+            f"Mass: {self.M:.2e} g\n"
+            f"Spin: {self._spin}\n"
+            f"Risco: {self._Risco:.2e} cm\n"
+            f"Eddington mass-accretion rate: {self._Medd:.2e} erg/s")
 
     @property
     def Risco(self):
@@ -52,6 +60,18 @@ class NS(CO):
         self._chi = chi
         self._alpha = alpha
 
+    def __str__(self):
+        return (f"Neutron Star (NS):\n"
+            f"Mass: {self.M:.2e} g\n"
+            f"Radius: {self.R_NS:.2e} cm\n"
+            f"Spin period: {self._P_NS:.2f} s\n"
+            f"Spin: {self._spin}\n"
+            f"Omega (angular velocity): {self._omega:.2e} rad/s\n"
+            f"Risco: {self._Risco:.2e} cm\n"
+            f"Rco (corotation radius cm): {self._Rco:.2f}\n"
+            f"Rlc (light cylinder cm): {self._Rlc:.2f}\n"
+            f"Eddington mass-accretion rate: {self._Medd:.2e} g/s")
+
     @property
     def alpha(self):
         return self._alpha
@@ -61,16 +81,16 @@ class NS(CO):
         return self._omega
 
     @property
-    def rco(self):
-        return self._rco
+    def Rco(self):
+        return self._Rco
     
     @property
     def chi(self):
         return self._chi
 
     @property
-    def rlc(self):
-        return self._rlc
+    def Rlc(self):
+        return self._Rlc
 
     @property
     def P_NS(self):
@@ -83,8 +103,8 @@ class NS(CO):
         self._omega = 2 * np.pi / period # angular velocity
         self._spin = self.period_to_spin()
         self._Risco = isco_radius(self.M, self._spin)
-        self._rco = self.corotation_radius() / self._Risco # in units of ISCO
-        self._rlc = self.light_cylinder() / self._Risco # in units of ISCO
+        self._Rco = self.corotation_radius() # in units of ISCO
+        self._Rlc= self.light_cylinder() # in units of ISCO
         efficiency = accretion_efficiency(self.M, self._Risco)
         self._Medd = eddington_luminosity((self.M * u.g).to(u.M_sun).value)/ ccgs** 2 / efficiency
         
@@ -101,7 +121,7 @@ class NS(CO):
 
         Returns the corotation radius in cm
         """
-        return ((Gcgs *  self.M * self._P_NS**2 /(4 * np.pi**2)) ** (1/3))
+        return (Gcgs *  self.M / self._omega**2) ** (1/3)
 
 
     def light_cylinder(self):
@@ -114,8 +134,7 @@ class NS(CO):
 
         Returns the light cylinder in cm
         """
-        omega = 2 * np.pi / self._P_NS
-        return ccgs / omega
+        return ccgs / self.omega
 
 
     def moment_of_inertia(self,):
@@ -161,48 +180,6 @@ def accretion_luminosity(M_dot, M=1.4 * M_sun.to(u.g), R=10**6 * u.cm):
     """
     efficiency = accretion_efficiency(M.to(u.g).value, R.to(u.cm).value)
     return efficiency * M_dot * c.to(u.cm/u.s) ** 2
-
-
-def magnetospheric_radius(Mdot, B, M=(1.4 * M_sun).to(u.g).value, Rns=10**6, psi=0.5):
-    """Return the magnetospheric radius given by my thesis (dipole magnetic field) Equation 2.19. Units cgs (remember Gauss is cgs)
-
-        Parameters:
-        -----------
-        Mdot: float
-            Mass accretion rate in g/s
-        B: float
-            Magnetic field in Gauss
-        M: float,
-            Mass of the NS in g
-        Rns: float,
-            Radius of the NS in cm
-        psi:float
-            Geometrical factor
-        Returns the magnetospheric radius (in cm)
-    """
-    return psi * ((Rns**12 * B**4) / (2 * Gcgs * M * Mdot**2)) ** (1/7)
-
-
-
-def magnetospheric_radius_superEdd(NS, B, psi=0.5, sph_factor=5/3):
-    """Return the magnetospheric radius when the disk is supercritical. Units cgs (remember Gauss is cgs)
-        Mdot(R) = Mdot_0 x R / R_sph
-        Rmag = psi * ((Rns**12 * B**4) / (2 * Gcgs * M * (Mdot_0 x R_mag / R_sph)**2)) ** (1/7)
-        then bring Rmag**2/7 to the left hand side and solve
-
-        Parameters:
-        -----------
-        NS: compact_object.NS
-            A NS object
-        B: float
-            Magnetic field in Gauss
-        psi:float
-            Geometrical factor
-        sph_factor:
-            Spherization factor (R_sph = factor x mdot x Risco, usually use the default)
-        Returns the magnetospheric radius (in cm)
-    """
-    return psi **(7/9) * ((NS.R_NS**12 * B**4) / (2 * Gcgs * NS.M)) ** (1/9) * (sph_factor * NS.Risco/ NS.Medd)**(2/9)
 
 
 def isco_radius(M, a=0.998):
@@ -266,7 +243,6 @@ def eddington_accretion_rate(M, R_in):
     return eddington_luminosity(M).decompose(bases=[u.g, u.s, u.cm]) / efficiency / c.to(u.cm/u.s)**2
 
 
-
 def chashkina_inner_radius(Rin, viscosity_alpha=0.5, m_ns=1):
     """Computes the magnetic field given the inner disk radius in the radiation-pressure dominated state. Equation 29.
 
@@ -305,7 +281,7 @@ def fastness_parameter(Rmag, Rco):
     return (Rmag / Rco) ** (3/2)
 
 
-def torque_wang(Mdot, Rmag, Rco, M_NS=(1.4 * M_sun).to(u.g).value, xi=1):
+def torque_wang(Mdot, Rmag, Rco, M_NS=(1.4 * M_sun).to(u.g).value):
     """Computes the accretion torque onto a NS according to Wang+95 (actually taken from Vasilopoulos+2018). All units in cgs
 
     Parameters
@@ -318,35 +294,41 @@ def torque_wang(Mdot, Rmag, Rco, M_NS=(1.4 * M_sun).to(u.g).value, xi=1):
         Co-rotation radius in cm
     M_NS: float
         Mass of the NS, defaults to 1.4 solar massess (in g)
-    xi: float
-        Dimensionless parameter of the order of unity
     """
     omega = fastness_parameter(Rmag, Rco)
     N_0 = Mdot * m.sqrt(Gcgs * M_NS * Rmag) # e.g. Ghosh & Lamb 1979 Eq 2
     n = (7/6 - (4/3) * omega + (1/9)*omega**2) / (1 - omega)
-    return xi * N_0 * n
+    return N_0 * n
 
 
-def torque(Mdot, Rmag, Rco, M_NS=1.4 * M_sun, xi=1):
-    """Computes the accretion torque onto a NS
+def magnetic_torque_wang(Mdot, Rmag, Rco, M_NS=(1.4 * M_sun).to(u.g).value):
+    """This is like the above, but only considering the magnetic term. It is a spin down term due to magnetic field lines threading the disc beyond the co-rotation radius
 
     Parameters
     ----------
-    Mdot: astropy.quantity
-        Instantaneous mass-accretion rate at Rmag. Units of mass/time
-    Rmag: astropy.quantity
-        Magnetospheric radius
-    Rco: astropy.quantity
-        Co-rotation radius
-    M_NS: astropy.quantity
-        Mass of the NS, defaults to 1.4 solar massess
-    xi: float
-        Dimensionless parameter of the order of unity
+    Mdot: float
+        Instantaneous mass-accretion rate at Rmag. Units of g/s
+    Rmag: float
+        Magnetospheric radius in cm
+    Rco: float
+        Co-rotation radius in cm
+    M_NS: float
+        Mass of the NS, defaults to 1.4 solar massess (in g)
     """
     omega = fastness_parameter(Rmag, Rco)
-    N_0 = Mdot.to(u.g / u.s) * np.sqrt(G * M_NS * Rmag) # e.g. Ghosh & Lamb 1979 Eq 2
-    return (xi * N_0 * (1 - omega)).decompose(bases=u.cgs.bases)
+    N_0 = Mdot * np.sqrt(Gcgs * M_NS * Rmag)
+    return N_0 / (1 - omega) * (1/6 -omega/3 + (omega**2)/9)
 
+
+def propeller_torque(Mdot, M_NS, omega, Rm):
+    """Equation 12 from Illarionov & Sunyaev 1975 or Eq 42 from Abolmasov 2024 review
+    
+    omega: float,
+        Angular velocity of the NS (2 pi / P)
+    Rm :float,
+        Magnetospheric radius
+    """
+    return -Mdot * Gcgs * M_NS / Rm / omega
 
 def magnetic_moment(B, R_NS=10*u.km):
     """See e.g. Equation (2) from Tsygankov
