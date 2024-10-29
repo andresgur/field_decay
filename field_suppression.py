@@ -1,102 +1,25 @@
-from compact_object import NS, magnetospheric_radius, torque_wang, Gcgs, ccgs, M_sun, magnetospheric_radius_superEdd
+from compact_object import NS, Gcgs, ccgs, M_sun
+from accretion import accretion_torque_dai, magnetic_torque_dai, magnetic_torque_dai_propeller, magnetospheric_radius_superEdd, magnetospheric_radius
 import numpy as np
 import astropy.units as u
 import matplotlib.pyplot as plt
 import os
 import time
 import argparse
-from math import cos, sin
+from math import cos, sin, log
 import numexpr as ne
 from celerite.terms import RealTerm
 from celerite import GP
-
-def find_n(Mc=2*10**-4 * u.Msun, Mb=4.6*10**-5 * u.Msun):
-
-        n_a = 1.0001
-        n_b = 3
-        err_tol = 0.001
-        err = (n_b - n_a) / 2
-        K = (Mc/Mb)**-2.25
-
-        if K> 0.11:
-            raise ValueError("K (%.2f) needs to be below 0.11, Mc needs to be greater than %.1e %s!" % (K, Mc.value, Mc.unit))
-
-        while err > err_tol:
-            n = (n_a + n_b) / 2
-            f_n = n**-2.25 - n**-3.25 - K
-            err = np.abs(n_b - n_a) / 2
-            f_na = n_a**-2.25 - n_a**-3.25 - K
-            if f_na * f_n <0:
-                n_b = n
-            else:
-                n_a = n
-        return n
+from tqdm import tqdm
+from field_decay_law import ShibazakiFieldDecay, PayneFieldDecay, ZhangFieldDecay
 
 
 def mcrit(B):
     """Calculate mdot critical at which the magnetic confiment breaks due to radiation pressure according to Mushtukov
     float: B
         Magnetic field (assumed in G, values are returned in ln(mcrt (g/s)))
-
     """
-    return ne.evaluate("6.9233445 + 4.2990807 * log(B) - 0.1794699 * log(B)**2 + 0.0025782 * log(B)**3")
-
-
-def Bfield_decay(B, deltaM, mb=1e-4 * u.M_sun):
-    """Returns the new B field
-    
-    deltaM: float,
-        Mass accreted in g
-    """
-    return B / (1 + deltaM / mb.to(u.g).value)
-
-
-def Bfield_decay_Payne(B, deltaM, mb=4.6 *10**-5 * u.M_sun, mc=2 * 10**-4 * u.M_sun):
-    """Returns the new B field after accreting Mdot over delta T.
-
-    Equation 8 in Payne and Melatos 2007
-    Equation 35 in Payne 2004
-
-    Parameters
-    ----------
-    B: float
-        Initial magnetic field
-    deltaM: float,
-        Mass accreted in g
-    """
-
-    if deltaM < mc.to(u.g).value / n:
-        return B *  (1 - deltaM / mc.to(u.g).value)
-    else:
-        return B *  (deltaM / mb.to(u.g).value) ** (-2.25) # 9/4 = 2.25
-
-
-def Bfield_decay_Zhang(B, deltaM, Mcrust=0.2 * u.M_sun, xi=1):
-    """Returns the new B field
-
-    Parameters
-    ----------
-    B: float
-        Initial magnetic field
-    deltaM: float,
-     Mass accreted in g
-    """
-    x0_2 = (Bf/B)**(4/7)
-    C = 1 + np.sqrt(1 - x0_2)
-    ##deltaM = Mdot.to(u.g/u.s) * deltaT
-    y = 2 * xi * deltaM / (7 * Mcrust.to(u.g).value)
-    return Bf / (1 - (C / np.exp(y) - 1)**2)**(7/4)
-
-
-def propeller_torque(Mdot, M_NS, omega, Rm):
-    """Equation 12 from Illarionov & Sunyaev 1975 or Eq 42 from Abolmasov 2024 review
-    
-    omega: float,
-        Angular velocity of the NS (2 pi / P)
-    Rm :float,
-        Magnetospheric radius
-    """
-    return ne.evaluate("-Mdot * Gcgs * M_NS / Rm / omega")
+    return 6.9233445 + 4.2990807 * log(B) - 0.1794699 * log(B)**2 + 0.0025782 * log(B)**3
 
 
 def deltaP(torque, deltaT, P, I):
@@ -114,11 +37,11 @@ def deltaangle(torque, deltaT, omega, I):
     omega: float,
     Angular velocity of the NS (2 pi / P)
     """
-    return ne.evaluate("torque * deltaT / (omega * I)")
+    return torque * deltaT / (omega * I)
 
 
-def braking_torque(mu, Rlc, chi=np.pi / 4):
-    """Equation from Biryukov and Abolmasov 2021
+def braking_torque(mu, Rlc):
+    """e.g. Equation 14 from Biryukov and Abolmasov 2021
     
     mu: float,
         Magnetic moment
@@ -127,28 +50,14 @@ def braking_torque(mu, Rlc, chi=np.pi / 4):
     chi: float,
         Magnetic angle (radiants)
     """
-    return ne.evaluate("-mu**2/ Rlc**3")
+    return -mu**2/ Rlc**3
 
 def cos_function(eta, alpha, chi):
     """Equation 20 combined with eta (see Eq 26) from Byryukov and Abolmasov 2021"""
     A = (1 - eta/2 * (sin(chi)**2 * sin(alpha)**2 + 2 *cos(chi)**2 * cos(alpha)**2))**-1
     return eta* A
 
-
-
-def bottom_field(R_NS):
-    """Computes the bottom magnetic field according to Zhang & Kojima 2006 Equation 18 but assuming outflows within Rsph and assuming there's no advection
-    The magnetospheric radius is taken from Middleton et al. 2023
-
-    Parameters
-    ----------
-    R_NS:float,
-        Radius of the NS in cm
-    B: float
-        Magnetic field in Gauss
-    """
-    return (R_NS / (4.2 * 10**7))**(9/4) * 10**12
-
+conversion = ((1 * (u.g/u.s)).to(u.Msun / u.yr)).value
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description='Compute decaying field and period due to mass accreton rate in super-critical regime')
@@ -171,11 +80,8 @@ if __name__ == "__main__":
     P_init = args.period
     M_NS = 1.4 * M_sun
     NS = NS(P_NS = P_init, Pso = 0, M_NS=M_NS, chi=args.chi / 180 * np.pi, alpha=args.alpha / 180 * np.pi)
-    accretion_torque = torque_wang # use Wang's prescription for the torque
-
-    Bf = bottom_field(NS.R_NS)
-
-    print("Bottom magnetic field: %.2E G" % Bf)
+    #accretion_torque = torque_wang # use Wang's prescription for the torque
+    
     mdot = args.mdot
 
     print("Running for mdot =  %.1f, P = %.1f s, B = %.2E, spin-axis angle: %.1f, magnetic angle: %.1f, Tmax = %.1f yr decay law: %s" % (mdot, args.period, args.field, args.alpha, args.chi, args.tmax, args.decay))
@@ -183,14 +89,14 @@ if __name__ == "__main__":
     #deltaT = 0.5 * u.yr switched to log scale
 
     #times = np.arange(0, args.tmax, deltaT.to(u.yr).value) * u.yr
-    nsteps = 50000
+    nsteps = 100000 #// 4# 50000
     print("Number of steps: %d" % nsteps)
     tswitch = 2.5e4
     #times = np.concatenate((np.geomspace(0.1, tswitch, nsteps), np.linspace(tswitch, args.tmax, 2 * nsteps))) # in years
     times = np.geomspace(0.1, args.tmax, nsteps) # # in years
     #times = np.arange(0.1, args.tmax, )
     nsteps = len(times)
-    steps = np.arange(1, nsteps + 1)
+    steps = range(nsteps)
     
     deltaT = (np.diff(times) << u.yr).to(u.s).value
     print(f"Delta T early: {deltaT[0]:.1f}")
@@ -200,29 +106,32 @@ if __name__ == "__main__":
     # variables to be filled
     B = B_init * np.ones(nsteps) # G
     P_t = P_init * np.ones(nsteps)
-    Mdot_t = np.zeros(nsteps) # cgs
+    Mdot_NS = np.zeros(nsteps)
+    Mdot_Rmag = np.zeros(nsteps)
     Mcrits = np.zeros(nsteps)
     propeller = np.zeros(nsteps)
     T_spin_t = np.zeros(nsteps)
     T_alpha_t = np.zeros(nsteps)
     T_chi_t = np.zeros(nsteps)
     pulsed = np.ones(nsteps)
-    Riscos = np.ones(nsteps) * NS.Risco
+    Rins = np.ones(nsteps) * NS.Risco
     Rmags = np.ones(nsteps)
     Rsphs = np.ones(nsteps)
-    Rcor = np.ones(nsteps)
+    Rcor = np.ones(nsteps) * NS.Rco
     alpha_t = np.ones(nsteps) * NS.alpha
     chi_t = np.ones(nsteps) * NS.chi
-    T_propeller_t = np.zeros(nsteps)
+    T_disc = np.zeros(nsteps)
+    T_mag = np.zeros(nsteps)
+    T_brake = np.zeros(nsteps)
     mdots = mdot  * np.ones(nsteps)
     # mean of mdot, 1 day bendtimescale, variance = 1 mdot
     timescale = 10 / 365
 
     np.random.seed(15)
-    kernel = RealTerm(log_a=np.log(36), log_c=np.log(2 * np.pi / timescale)) 
+    kernel = RealTerm(log_a=np.log(1), log_c=np.log(2 * np.pi / timescale)) 
     gp = GP(kernel, mean=mdot)
     gp.compute(times)
-    mdots = gp.sample()
+    #mdots = gp.sample()
     #print(mdots[np.isnan(mdots)])
     #mdots[np.isnan(mdots)] = mdot
     eta = 0.99
@@ -230,91 +139,91 @@ if __name__ == "__main__":
     Macc_accum = 0 # u.g/u.s
 
     Mdot = mdots * NS.Medd # mdot transferred is constant, even if MdotEdd increases, g/s
+    print("Mdot in  %.1e g/s (%.1e M_sun/yr)" % (Mdot[0], Mdot[0] * conversion))
 
     if decay_keyword=="Zhang":
-        decay_equation = Bfield_decay_Zhang
+        decay_law = ZhangFieldDecay(B_init)
+        print("Bottom magnetic field: %.2E G" % decay_law.Bf)
     elif decay_keyword=="Shibazaki":
-        decay_equation = Bfield_decay
+        decay_law = ShibazakiFieldDecay(B_init)
     elif decay_keyword == "Payne":
-        n = find_n()
-        print("Value of n: %.2f" % n)
-        decay_equation = Bfield_decay_Payne
-
+        decay_law = PayneFieldDecay(B_init)
+        print("Value of n: %.2f" % decay_law.n)
+    print("Using decay law from: %s" % decay_law.name)
     start = time.time()
     try:
         #for i, t in enumerate(times[1:], 1):
-        for i in steps[:-1]:
+        for i in tqdm(steps[:-1]):
             # update the period so that we get a new Rco and Risco as well as MdotEdd
-            NS.P_NS = P_t[i - 1] # this recalculates Rco internally
-            critical_mdot = np.exp(mcrit(B[i-1])) # cgs
-            Mcrits[i - 1] = critical_mdot
-            Riscos[i] = NS.Risco if NS.Risco > NS.R_NS else NS.R_NS # cm
-            Rsph = 5/3 * mdots[i -1] * NS.Risco # cm
+            NS.P_NS = P_t[i] # this recalculates Rco internally
+            critical_mdot = np.exp(mcrit(B[i])) # cgs
+            Mcrits[i] = critical_mdot
+            Rins[i] = NS.Risco if NS.Risco > NS.R_NS else NS.R_NS # cm
+            Rcor[i] = NS.Rco
+            Rsph = 5/3 * mdots[i] * Rins[i] # cm this is the NS radius or Rin (see Lipunova 1999 how the inner torque is defined)
             Rsphs[i] = Rsph
-            Rmag = magnetospheric_radius(Mdot[i-1], B[i-1], NS.M, NS.R_NS) # cm
-
+            #Rmag, err = magnetospheric_radius_wang(Mdot[i-1], B[i-1], NS) # cm
+            Rmag = magnetospheric_radius(Mdot[i], B[i], NS, psi=0.5)
             # SS73 supercritical regime
             if Rmag < Rsph:
-                Rmag = magnetospheric_radius_superEdd(NS, B[i-1])#4.2 * 10**7 * (B[i-1] / 10**12) ** (4/9) # cm
-                if Rmag < NS.Risco: # non magnetic accretion, no B field decay
-                    Rmag = NS.Risco
+                #Rmag = magnetospheric_radius_wang_superEdd(Mdot[i-1], B[i-1], NS)#4.2 * 10**7 * (B[i-1] / 10**12) ** (4/9) # cm
+                Rmag = magnetospheric_radius_superEdd(B[i], NS, psi=0.5)
+                # for numerical stability (mainly with Payne's mangetic field decay) let's allow some tolerance
+                if Rmag <= Rins[i]: # non magnetic accretion, no B field decay
+                    Rmag = Rins[i]
                     pulsed[i] = 0
 
-                Mdot_Rm = Mdot[i-1] * Rmag / Rsph
+                Mdot_Rmag[i] = Mdot[i] * Rmag / Rsph
             # "subcritical" accretion
             else:
-                Mdot_Rm = Mdot[i-1]
+                Mdot_Rmag[i] = Mdot[i]
 
             Rmags[i] = Rmag
-            Rcor[i] = NS.rco * NS.Risco
-            # propeller
+            T_disc[i] = accretion_torque_dai(Mdot_Rmag[i], Rmag, NS) # this torque works for both accretion and propeller
+            # propeller (remember torque = 0 is spin eq, not propeller)
             if Rcor[i] < Rmags[i]:
                 propeller[i] = 1
-                T_propeller_t[i - 1] = propeller_torque(Mdot_Rm, NS.M, NS.omega, Rmag)
-                T_spin_t[i-1] += T_propeller_t[i-1] * cos(alpha_t[i - 1])
-                T_chi_t[i -1] += cos_function(eta, alpha_t[i-1], chi_t[i-1]) * T_propeller_t[i-1] * sin(alpha_t[i -1 ])**2 * cos(alpha_t[i - 1]) * sin(chi_t[i - 1]) * cos(chi_t[i-1])
-                B[i] = B[i-1]
+                B[i + 1] = B[i]
+                magnetic_torque = magnetic_torque_dai_propeller
             # accretion
             else:
-                T_accretion = accretion_torque(Mdot_Rm, Rmag, Rcor[i], NS.M)
-                T_spin_t[i - 1] += T_accretion * cos(alpha_t[i - 1])
-                T_alpha_t[i -1] += -T_accretion * sin(alpha_t[i - 1])
-                T_chi_t[i -1] += cos_function(eta, alpha_t[i-1], chi_t[i-1]) * T_accretion * sin(alpha_t[i -1 ])**2 * cos(alpha_t[i - 1]) * sin(chi_t[i - 1]) * cos(chi_t[i-1])
-
+                magnetic_torque = magnetic_torque_dai
                 # accretion with magnetosphere --> B decays
-                if Rmag > NS.Risco:
+                if pulsed[i]:
                     # if we have exceeded the critical value, readjust for magnetic field suppression
-                    Mdot_t[i - 1] = critical_mdot if Mdot_Rm > critical_mdot else Mdot_Rm
+                    Mdot_NS[i] = critical_mdot if Mdot_Rmag[i] > critical_mdot else Mdot_Rmag[i]
                     # add the new matter to decay the B field
-                    Maccumulated = Mdot_t[i - 1] * deltaT[i-1] + Macc_accum # cgs
-                    B[i] = decay_equation(B_init, Maccumulated) # B[i-1]
-                # Rmag at Isco already, there's no B decay
+                    Maccumulated = Mdot_NS[i] * deltaT[i] + Macc_accum # cgs
+                    B[i + 1] = decay_law.decay_field(Maccumulated) # B[i-1]
+                # Rmag at Isco already, there's no B decay## and we assume the mass doesn't make it to the poles
                 else:
-                    B[i] = B[i-1]
-                    Mdot_t[i -1] = Mdot_Rm
+                    B[i + 1] = B[i]
+                    Mdot_NS[i] = Mdot_Rmag[i]
                 
-                Macc_accum += Mdot_t[i -1] * deltaT[i-1] # cgs
+                Macc_accum += Mdot_NS[i] * deltaT[i] # cgs
             
-            mu = B[i-1] * NS.R_NS**3 / 2
-            T_spin_t[i - 1] += braking_torque(mu, NS.rlc * NS.Risco) * (1 + sin(chi_t[i - 1])**2)
-            T_chi_t[i -1] += braking_torque(mu, NS.rlc * NS.Risco) * sin(chi_t[i- 1 ]) * cos(chi_t[i - 1])
+            mu = B[i] * NS.R_NS**3 / 2
+            T_brake[i] = braking_torque(mu, NS.Rlc)
+            T_mag[i] = magnetic_torque(B[i], Rmag, NS)
+            T_spin_t[i] = T_disc[i] * cos(alpha_t[i]) + T_brake[i] * (1 + sin(chi_t[i])**2) + T_mag[i]
+            T_chi_t[i] = cos_function(eta, alpha_t[i], chi_t[i]) * T_disc[i] * sin(alpha_t[i])**2 * cos(alpha_t[i]) * sin(chi_t[i]) * cos(chi_t[i]) + T_brake[i] * sin(chi_t[i]) * cos(chi_t[i])
+            T_alpha_t[i] = -T_disc[i] * sin(alpha_t[i])
             # update spin period
-            Pincr = deltaP(T_spin_t[i - 1], deltaT[i-1], P_t[i-1], NS.I)
-            P_t[i] = P_t[i-1] + Pincr
+            Pincr = deltaP(T_spin_t[i], deltaT[i], P_t[i], NS.I)
+            P_t[i + 1] = P_t[i] + Pincr
             # update alpha
-            alpha_incr = deltaangle(T_alpha_t[i -1], deltaT[i-1], NS.omega, NS.I)
-            alpha_t[i] = alpha_t[i-1] + alpha_incr
+            alpha_incr = deltaangle(T_alpha_t[i], deltaT[i], NS.omega, NS.I)
+            alpha_t[i + 1] = alpha_t[i] + alpha_incr
             # update chi
-            chi_incr = deltaangle(T_chi_t[i -1], deltaT[i-1], NS.omega, NS.I)
-            chi_t[i] =  chi_t[i-1] + chi_incr
+            chi_incr = deltaangle(T_chi_t[i], deltaT[i], NS.omega, NS.I)
+            chi_t[i + 1] =  chi_t[i] + chi_incr
 
-            print("Progress: %d/%d" % (i, nsteps), end="\r")
     except ValueError as e:
         print("Math overflow. Aborting program", e)
-        B[i:] = B[i - 1]
-        P_t[i:] = P_t[i - 1]
-        alpha_t[i:] = alpha_t[i - 1]
-        chi_t[i:] = chi_t[i - 1]
+        B[i + 1:] = B[i]
+        P_t[i + 1:] = P_t[i]
+        alpha_t[i + 1:] = alpha_t[i]
+        chi_t[i + 1:] = chi_t[i]
 
     outdir = "field_suppression"
     if not os.path.isdir(outdir):
@@ -325,11 +234,11 @@ if __name__ == "__main__":
     if not os.path.isdir(outdir):
         os.mkdir(outdir)
     
-    conversion = ((1 * (u.g/u.s)).to(u.Msun / u.yr)).value
     
-    outputs = np.array([B[:-1], P_t[:-1], Mdot_t[:-1] * conversion, Mcrits[1:] * conversion, Rmags[1:] / 1000, Rsphs[1:] / 1000, Rcor[1:] / 1000, T_spin_t[1:], alpha_t[1:] / np.pi * 180, chi_t[1:] / np.pi * 180, propeller[1:], pulsed[1:], times[:-1]])
+    
+    outputs = np.array([B[:-1], P_t[:-1], Mdot_NS[:-1] * conversion, Mcrits[1:] * conversion, Rmags[1:] / 1000, Rins[1:] /1000, Rsphs[1:] / 1000, Rcor[1:] / 1000, T_spin_t[1:], alpha_t[1:] / np.pi * 180, chi_t[1:] / np.pi * 180, propeller[1:], pulsed[1:], times[:-1]])
     np.savetxt("%s/results.dat" %(outdir), outputs.T, delimiter="\t",
-               fmt="%.5E\t%.5f\t%.5E\t%.5E\t%.1f\t%.1f\t%.1f\t%.2E\t%.2f\t%.2f\t%d\t%d\t%.5E", header="B\tP\tMacc\tMcrit\tRmag_km\tRsph_km\tRcor_km\ttorque_cm2_g_s2\talpha\tchi\tpropeller\tpulsed\tt")
+               fmt="%.7E\t%.5f\t%.5E\t%.5E\t%.3f\t%.3f\t%.3f\t%.3f\t%.2E\t%.2f\t%.2f\t%d\t%d\t%.5E", header="B\tP\tMacc\tMcrit\tRmag_km\tRin_km\tRsph_km\tRcor_km\ttorque_cm2_g_s2\talpha\tchi\tpropeller\tpulsed\tt")
 
     end = time.time()
     time_taken = end - start
@@ -337,16 +246,16 @@ if __name__ == "__main__":
     print("Done", "\n")
 
     print("Time taken: %.2f s" % time_taken)
-
+    print(f"Final P:{P_t[-2]:.5f} s")
     print("Adding up mdot")
-    M_acc = (np.cumsum(Mdot_t[:-1] *  deltaT) * u.g).to(u.M_sun).value # convert to solar masses
+    M_acc = (np.cumsum(Mdot_NS[:-1] *  deltaT) * u.g).to(u.M_sun).value # convert to solar masses
 
-    fig, axes = plt.subplots(5, 1, sharex=True, gridspec_kw={"hspace":0.15}, figsize=(18, 14))
+    fig, axes = plt.subplots(6, 1, sharex=True, gridspec_kw={"hspace":0.2}, figsize=(18, 14))
     i = 0
     ax = axes[i]
     scaling = 1
-    plot_times = times[1:-1] / scaling
-    ax.plot(plot_times, B[1:-1])
+    plot_times = times[0:-1] / scaling
+    ax.plot(plot_times, B[0:-1])
     #ax.fill_between(times[:-1] / scaling, 0, 1, where=propeller[:-1], alpha=0.4, transform=ax.get_xaxis_transform(), color="red")
     #ax.fill_between(times[:-1] / scaling, 0, 1, where=~pulsed[:-1], alpha=0.4, transform=ax.get_xaxis_transform(), color="red")
     ax.set_yscale("log")
@@ -357,7 +266,7 @@ if __name__ == "__main__":
     ax2 = ax.twinx()
     ax = ax2#axes[1]
     color = "C1"
-    ax.plot(plot_times, P_t[1:-1], color=color, ls="--", lw=1.5)
+    ax.plot(plot_times, P_t[0:-1], color=color, ls="--", lw=2.5)
     ax.tick_params("y", colors=color, which="both")
     ax.spines["right"].set_color(color)
     ax.yaxis.label.set_color(color)
@@ -365,26 +274,38 @@ if __name__ == "__main__":
     ax.set_yscale("log")
     ax.set_xscale("log")
 
+    if True:
+        ngc300ulx_data = np.genfromtxt("/home/andresgur/Documents/papers/magnetic_suppression/NGC300ULX1.dat", names=True, delimiter="\t")
+        # 2010 was discovered, 2014 first period
+        years = 4.5 # Nov 2014 - 2010
+        ax.errorbar((ngc300ulx_data["MJD"] - ngc300ulx_data["MJD"][0])/365 + years, ngc300ulx_data["P"], yerr=ngc300ulx_data["P_err"], 
+                    label="NGC 300 ULX1", color=color, ls="None", fmt=".", markersize=20)
+        ax.legend()
+
+
     i+=1
     ax = axes[i]
-    ax.plot(plot_times, Mdot[1:-1] * conversion * 10**6, label=r"$\dot{M}_0$", ls="--", color="black", alpha=0.9, lw=1)
-    ax.plot(plot_times, Mdot_t[1:-1] * conversion * 10**6, label=r"$\dot{M}_\mathrm{NS}$")
-    ax.plot(plot_times, Mcrits[1:-1] * conversion * 10**6, label=r"$\dot{M}_\mathrm{crit}$", ls="--")
+    ax.plot(plot_times, Mdot[0:-1] * conversion * 10**6, label=r"$\dot{M}_0$", ls="--", color="black", alpha=0.9, lw=1.4)
+    ax.plot(plot_times, Mdot_Rmag[0:-1] * conversion * 10**6, label=r"$\dot{M}(R_\mathrm{mag})$", ls=":")
+    ax.scatter(plot_times, Mdot_NS[0:-1] * conversion * 10**6, label=r"$\dot{M}_\mathrm{NS}$")
+    ax.plot(plot_times, Mcrits[0:-1] * conversion * 10**6, label=r"$\dot{M}_\mathrm{crit}$", ls="--", lw=2.5, color="C1")
     ax.legend()
     ax.set_ylabel('$\dot{M}$ (10$^{-6}$ $M_\odot$/yr)')
     ax.set_xscale("log")
+
     i+=1
     ax = axes[i]
-    ax.plot(plot_times, M_acc[1:])
+    ax.plot(plot_times, M_acc[0:])
     ax.set_ylabel(r'$M_\mathrm{a}$ ($M_\odot$)')
     ax.set_xscale("log")
     ax.set_yscale("log")
+
     i+=1
     ax = axes[i]
-    ax.plot(plot_times, Rmags[1:-1] / 1000, label=r"$R_\mathrm{mag}$")
-    ax.plot(plot_times, Rsphs[1:-1]  / 1000, label=r"$R_\mathrm{sph}$", ls="--", lw=1)
-    ax.plot(plot_times, Rcor[1:-1]  / 1000, label=r"$R_\mathrm{cor}$", ls=":")
-    #ax.axhline(NS.R_NS / 1000, label=r"$R_\mathrm{NS}$", color="black", ls="--", alpha=0.9)
+    ax.scatter(plot_times, Rmags[0:-1] / 1000, label=r"$R_\mathrm{mag}$", color=np.where(pulsed[0:-1], "green", "red"), s=5)
+    ax.plot(plot_times, Rsphs[0:-1]  / 1000, label=r"$R_\mathrm{sph}$", ls="--", lw=2.5)
+    ax.plot(plot_times, Rcor[0:-1]  / 1000, label=r"$R_\mathrm{cor}$", ls=":", lw=3.5)
+    #ax.plot(plot_times, Rins[0:-1]/1000, label=r"$R_\mathrm{in}$", color="black", ls="--", alpha=0.9)
     ax.legend()
     ax.set_ylabel('R (km)')
     ax.set_xscale("log")
@@ -392,17 +313,29 @@ if __name__ == "__main__":
 
     i+=1
     ax = axes[i]
-    ax.plot(plot_times, alpha_t[1:-1] / np.pi * 180, label=r"$\alpha$")
-    ax.plot(plot_times, chi_t[1:-1] / np.pi * 180, label=r"$\chi$", ls="--")
+    ax.plot(plot_times, alpha_t[0:-1] / np.pi * 180, label=r"$\alpha$")
+    ax.plot(plot_times, chi_t[0:-1] / np.pi * 180, label=r"$\chi$", ls="--")
     ax.legend()
     ax.set_ylabel(r'Angle ($^\circ$)')
     ax.set_xscale("log")
+
+    i+=1
+    ax = axes[i]
+    N = (Mdot* np.sqrt(Gcgs * NS.M * Rmags))[0:-1]
+    ax.plot(plot_times, T_disc[0:-1] / N, label=r"$N_\mathrm{acc}$", lw=3)
+    ax.plot(plot_times, T_mag[0:-1] / N, label=r"$N_\mathrm{mag}$", ls="--", lw=2.5)
+    ax.plot(plot_times, T_brake[0:-1] / N, label=r"$N_\mathrm{psr}$",  ls=":")
+    ax.plot(plot_times, np.zeros(len(N)), ls="--", lw=2)
+    ax.legend()
+    ax.set_ylabel(r'$N / \dot{M}_0 \sqrt{GMR_\mathrm{mag}}$')
+    ax.set_xscale("log")
+
 
     axes[-1].set_xlabel("Time (yr)" )
     plt.savefig("%s/multiplot.png" % (outdir))
 
     plt.figure()
-    plt.scatter(times / scaling, Riscos / 1000) # convert to km
+    plt.scatter(times / scaling, Rins / 1000) # convert to km
     plt.axhline(NS.R_NS / 1000, label=r"$R_\mathrm{NS}$", color="black", ls="--", alpha=0.9)
     plt.legend()
     plt.ylabel("$R_{isco}$ (km)")
