@@ -1,10 +1,13 @@
 #!/usr/bin/env python
 # coding: utf-8
 import numpy as np
-from math import log, sqrt
+from math import sqrt
 import astropy.units as u
 from astropy.constants import G, c, M_sun
 from numba import jit, float64
+from numba.types import UniTuple
+
+# jit does make the code faster
 
 Gcgs = G.to(u.cm**3/u.g/u.s**2).value
 ccgs = c.to(u.cm/u.s).value
@@ -12,7 +15,7 @@ M_suncgs = M_sun.to(u.g).value
 
 M_NS_default = 2.7837738189772707e+33 # 1.4 M_sun in grams
 
-
+@jit(float64(float64, float64), nopython=True)
 def accretion_efficiency(M, R):
     """Returns the accretion efficiency. Everything in cgs
     M: float
@@ -23,23 +26,80 @@ def accretion_efficiency(M, R):
     """
     return Gcgs * M  / (2 * ccgs ** 2 * R)
 
-
-def accretion_luminosity(M_dot, M=1.4 * M_sun, R=10**6 * u.cm):
+@jit(nopython=True)
+def accretion_luminosity(M_dot, M=1.4 * M_suncgs, R=10**6):
     """Returns the accretion luminosity in erg/s (see Vasilopoulos et al 2019 paragraph after eq 8.
         M_dot: astropy.quantity,
             Mass-accretion rate in g/s
-        M: astropy.quantity,
-            Mass of the compact object in solar masses
-        R: astropy.quantity,
-            Radius of the compact object or inner stable orbit
+        M: float,
+            Mass of the compact object in g
+        R: float,
+            Radius of the compact object or inner stable orbit in cm
         Returns the accretion luminosity in erg/s
     """
-    efficiency = accretion_efficiency(M.to(u.g).value, R.to(u.cm).value)
-    return efficiency * M_dot * c.to(u.cm/u.s) ** 2
+    efficiency = accretion_efficiency(M, R)
+    return efficiency * M_dot * ccgs ** 2.
+
+
+
+@jit(float64(float64), nopython=True)
+def eddington_luminosity(Msuns):
+    """The classical Eddington luminosity for a given mass.
+        Parameters
+        ----------
+        Msuns: float
+            Mass in solar units
+        Returns the Eddington luminosity in erg/s (cgs)
+    """
+    return 1.26 * Msuns * 10**38.
+
 
 def inverse_magnetospheric_radius(Mdot, R, ns, psi=0.5):
+    """Return the inverse magnetospheric radius given by my thesis (dipole magnetic field) Equation 2.19. Units cgs (remember Gauss is cgs)
 
+    Parameters:
+    -----------
+    Mdot: float
+        Mass accretion rate in g/s
+    R: float
+        Radius in cm
+    ns: object
+        Neutron star object with attributes M (mass) and R_NS (radius)
+    psi:float
+        Geometrical factor
+    Returns the inverse magnetospheric radius (in cm)
+    """
     return ((R/psi)**7 * 2 * Gcgs * ns.M * Mdot**2 / (ns.R_NS**12.)) ** (0.25) # 1/4
+
+
+@jit(nopython=True)
+def neutron_star_binding_luminosity(Mdotmag, Rmag, M_NS=M_NS_default, R_NS=10**6, beaming=1):
+    """Computes the luminosity within Rmag (See Middleton+2022 Equation 2)
+
+    Mdotmag: astropy.quantity
+        Mass-accretion rate at the magnetospheric radius
+    """
+    return (Gcgs * M_NS * Mdotmag) * (1 / R_NS - 1 / Rmag) / beaming
+
+@jit(nopython=True)
+def luminosity_super_edd_NS(Rmag, Rsph, e_wind=0.5, beaming=1):
+    """Equations from Middleton+23. This is the luminosity from the supercritical disc and therefore assumes Rsph > Rmag. All parameters are in cgs
+
+    Parameters
+    ----------
+    Rmag:float,
+        Magnetosphericc radius
+    Rsph: float,
+        Spherization radius,
+    e_wind: float
+        Energy imparted to the wind (0 < e_wind < 1)
+    beaming: float
+        Beaming factor (b < 1, b=1 no beaming)
+
+    Returns the luminosity in Eddington units (i.e. L / LEdd)
+     """
+    return np.log(Rsph / Rmag) * (1 - e_wind) / beaming
+
 
 
 @jit(nopython=True)
@@ -58,7 +118,7 @@ def mass_transfer_inner_radius(m_0, e_wind=0.5):
     # 2/5 = 0.4
     return (1. - a) / (1. - a * (0.4 * m_0) ** (- 0.5))
 
-@jit(nopython=True)
+@jit( nopython=True)
 def spherization_radius(m_0, Rin, e_wind=0):
     """
     Parameters
@@ -86,7 +146,7 @@ def spherization_radius_poutanen(m_0, Rin, e_wind=0.5):
     """
     return (1.34 - 0.4 * e_wind + 0.1 * e_wind ** 2. - (1.1 - 0.7 * e_wind) * m_0 ** (-2./3.)) * m_0 * Rin
 
-@jit(nopython=True)
+@jit( nopython=True)
 def magnetospheric_radius(Mdot, mu, M_NS=M_NS_default, psi=0.5):
     """Return the magnetospheric radius given by my thesis (dipole magnetic field) Equation 2.19. Units cgs (remember Gauss is cgs)
 
@@ -104,14 +164,41 @@ def magnetospheric_radius(Mdot, mu, M_NS=M_NS_default, psi=0.5):
     """
     return psi * ( mu**4. / (2. * Gcgs * M_NS * Mdot**2.)) ** (1./7.)
 
+@jit(nopython=True)
+def Mdot_root(Mdot, Mdot0, Mdotisco, R_sph, mu, M_NS=M_NS_default, psi=0.5):
+    """Auxiliary for the numerical solver of the mass transfer rate at the magnetospheric radius. 
+    This is Equation (6) from Mushtukov et al. 2019, but with R replaced by Rmag
+    
+    Parameters
+    ----------
+    Mdot: float,
+        The mass transfer rate at the magnetospheric radius in g/s
+    Mdot0: float,
+        The mass transfer rate at the companion
+    Mdotisco: float,
+        The mass transfer rate at the inner radius of the disk
+    mu: float,
+        The magnetic moment in cgs
+    R_sph: float,
+        The spherization radius in cm
+    M_NS: float,
+        The mass of the NS in g
+    psi: float,
+        The numerical factor between 1 and 0 that enters the magnetospheric calculation
+    """
+    Rmag_a = magnetospheric_radius(Mdot, mu, M_NS, psi=psi)
+    M_r = Mdotisco + (Mdot0 - Mdotisco) * Rmag_a / R_sph
+    f = Mdot - M_r
+    return f
+
 
 @jit(nopython=True)
-def mass_transfer_rate_mag_radius(Mdot, mu, Medd, R_sph, M_NS=M_NS_default, psi=0.5, e_wind=0.5):
+def mass_transfer_rate_mag_radius(Mdot0, mu, Medd, R_sph, M_NS=M_NS_default, psi=0.5, e_wind=0.5, tol=10**-4):
     """Solves Equation (6) from Mushtukov et al. 2019 numerically, where R is replaced by Rmag. All parameters in cgs
 
     Parameters
     ----------
-    Mdot: float,
+    Mdot0: float,
         The mass transfer rate at the companion in Eddington units
     mu: float,
         The magnetic moment in cgs
@@ -125,25 +212,23 @@ def mass_transfer_rate_mag_radius(Mdot, mu, Medd, R_sph, M_NS=M_NS_default, psi=
         The numerical factor between 1 and 0 that enters the magnetospheric calculation
     e_wind: float,
         A factor between 0 and 1 that determines the fraction of energy that goes into powering the wind
+    tol: float,
+        Tolerance for the numerical solution in units of Mdot0. Default 10^-4 (i.e. 10^-4 Mdot0). Some tests were run to ensure that this is enough to get a good convergence
 
     Returns the mass-transfer rate at the magnetospheric radius by solving Equation (6) numerically
     """
-    mdot = Mdot / Medd
-    M_isco = mass_transfer_inner_radius(mdot, e_wind) * Mdot
+    mdot = Mdot0 / Medd
+    M_isco = mass_transfer_inner_radius(mdot, e_wind) * Mdot0
     M_a = M_isco
-    M_b = Mdot 
-    err_tol = Mdot * 10.**(-6.)
+    M_b = Mdot0 
+    err_tol = Mdot0 * tol
     err = (M_b - M_a) / 2.
-    Rmag_a = magnetospheric_radius(M_a, mu, M_NS, psi=psi)
-    M_r = M_isco + (Mdot - M_isco) * Rmag_a / R_sph
-    f_a = M_a - M_r
+    f_a = Mdot_root(M_a, Mdot0, M_isco, R_sph, mu, M_NS, psi)
     
         
     while err > err_tol:
         M_c = (M_a + M_b) / 2.
-        Rmag_c = magnetospheric_radius(M_c, mu, M_NS, psi=psi)
-        M_r = M_isco + (Mdot - M_isco) * Rmag_c / R_sph
-        f_c = M_c - M_r
+        f_c = Mdot_root(M_c, Mdot0, M_isco, R_sph, mu, M_NS, psi)
         if f_c * f_a <0:
             M_b = M_c
         else:
@@ -205,7 +290,7 @@ def magnetospheric_radius_superEdd_Mdot(mu, Mdot, Rsph, M_NS=M_NS_default, psi=0
     return psi **(7./9.) * (mu**4 / (2. * Gcgs * M_NS)) ** (1./9.) * (Rsph / Mdot)**(2./9.)
 
 
-@jit(nopython=True)
+@jit( nopython=True)
 def magnetospheric_radius_wang_superEdd(Mdot, mu, Rsph, Rco, M_NS=M_NS_default, gamma=0.1, alpha=0.1):
     """Magnetospheric radius derived using Wang's balance between magnetic and viscous stresses, and accounting for linear mass-loss in the disc.
     The final ecuation is a polynomial of third order: x^3 + K/Rco^(3/2)x - K
@@ -284,7 +369,7 @@ def magnetospheric_radius_wang(Mdot0, mu, M_NS, Rco, gamma=0.1, alpha=0.1):
         err = abs(R0_a - R0_b) / 2
     return R0_c, err
     
-@jit(nopython=True)
+@jit(float64(float64), nopython=True)
 def mcrit(B):
     """Calculate mdot critical at which the magnetic confiment breaks due to radiation pressure according to Mushtukov. cgs units everywhere
     float or array: B
@@ -293,19 +378,7 @@ def mcrit(B):
     """
     return np.exp(6.9233445 + 4.2990807 * np.log(B) - 0.1794699 * np.log(B)**2. + 0.0025782 * np.log(B)**3.)
 
-
-@jit(nopython=True)
-def eddington_luminosity(Msuns):
-    """The classical Eddington luminosity for a given mass.
-        Parameters
-        ----------
-        Msuns: float
-            Mass in solar units
-        Returns the Eddington luminosity in erg/s (cgs)
-    """
-    return 1.26 * Msuns * 10**38.
-
-
+@jit(float64(float64, float64), nopython=True)
 def eddington_accretion_rate(M, R_in):
     """The classical Eddington luminosity for a given mass.
         Parameters
@@ -316,9 +389,22 @@ def eddington_accretion_rate(M, R_in):
     """
     efficiency = accretion_efficiency(M, R_in)
     # convert erg to cgs
-    return eddington_luminosity(M).decompose(bases=[u.g, u.s, u.cm]) / efficiency / c.to(u.cm/u.s)**2.
+    return eddington_luminosity(M) / efficiency / ccgs**2.
 
 
+@jit(nopython=True)
+def magnetic_moment_to_B(mu, Rns = 10 **6):
+    """Compute magnetic field from magnetic moment. See after Equation (2) from Tsygankov et al 2016
+        Returns the magnetic field in G units.
+        Parameters
+        ----------
+        mu: float
+            Magnetic moment in cgs units (i.e. Gauss * cm^3)
+        
+        Rns: float
+            Radius of the neutron star in cm. Default 10^6 cm (1 km)"""
+    B = 2 * mu / (Rns) ** 3
+    return B
 
 @jit(nopython=True)
 def chashkina_inner_radius(Rin, viscosity_alpha=0.5, m_ns=1):
@@ -334,18 +420,13 @@ def chashkina_inner_radius(Rin, viscosity_alpha=0.5, m_ns=1):
             NS mass (in NS solar mass units e.g. 1 for 1.4 M_sun)
         Returns the magnetic field in 10¹² G units.
         """
-    factor =  170 * (viscosity_alpha / 0.1) ** (2/9) * m_ns ** (-10/9.)
-    magnetic_moment = (Rin / factor) ** (9/4)
-    return magnetic_moment_to_B(magnetic_moment * 10**30 * u.G * u.cm ** 3)
-
-
-def magnetic_moment_to_B(mu, Rns = 10 * u.km):
-    """Compute magnetic field from magnetic moment. See after Equation (2) from Tsygankov et al 2016
-        Returns the magnetic field in G units."""
-    B = 2 * mu.to(u.G * u.km ** 3) / (Rns.to(u.km)) ** 3
+    factor =  170 * (viscosity_alpha / 0.1) ** (2.25) * m_ns ** (-10/9.) #9/4 = 2.25
+    mu = (Rin / factor) ** (2.25)
+    B =  magnetic_moment_to_B(mu * 10**30) #  * u.G * u.cm ** 3
     return B
 
-@jit(nopython=True)
+
+@jit(float64(float64, float64), nopython=True)
 def fastness_parameter(Rmag, Rco):
     """Computes the fastness parameter. Both radii must be provided in same units
 
@@ -357,6 +438,17 @@ def fastness_parameter(Rmag, Rco):
         Co-rotation radius
     """
     return (Rmag / Rco) ** (1.5)
+
+@jit(float64(float64, float64), nopython=True)
+def braking_torque(mu, Rlc):
+    """e.g. Equation 14 from Biryukov and Abolmasov 2021
+    
+    mu: float,
+        Magnetic moment
+    Rlc: float,
+        Light cylinder
+    """
+    return -mu**2. / Rlc**3.
 
 @jit(nopython=True)
 def torque_wang(Mdot, Rmag, Rco, M_NS=M_NS_default):
@@ -434,7 +526,7 @@ def accretion_torque_dai(Mdot, Rmag, omega, M_NS=M_NS_default, gamma=1, delta=0.
     N_acc = xi * accretion_torque(Mdot, Rmag, M_NS) * (1. - omega) / (psi**(3.5)) # e.g. Ghosh & Lamb 1979 Eq 2
     return N_acc
 
-@jit(nopython=True)
+@jit( nopython=True)
 def magnetic_torque_dai(mu, Rmag, omega, gamma=1):
     """Computes the magnetic torque onto a NS (valid during accretion) i.e. for w >=1 (Lai & Li 2006)
         Their Equation 7
@@ -454,7 +546,7 @@ def magnetic_torque_dai(mu, Rmag, omega, gamma=1):
     Nmag = factor * (1. - 2. * omega + 2. * omega**2./3.)
     return Nmag
 
-@jit(nopython=True)
+@jit( nopython=True)
 def magnetic_torque_dai_propeller(mu, Rmag, omega, gamma=1):
     """Computes the magnetic torque onto a NS (valid during propeller i.e. for w <1) (Lai & Li 2006)
     Their Equation 7
@@ -474,7 +566,7 @@ def magnetic_torque_dai_propeller(mu, Rmag, omega, gamma=1):
     Nmag = factor * (2. /(3. * omega) - 1.)
     return Nmag
 
-@jit(nopython=True)
+@jit(float64(float64, float64, float64, float64), nopython=True)
 def propeller_torque(Mdot, M_NS, omega, Rm):
     """Equation 12 from Illarionov & Sunyaev 1975 or Eq 42 from Abolmasov 2024 review
     
