@@ -33,6 +33,7 @@ def read_config(file):
 
 conversion = ((1 * (u.g/u.s)).to(u.Msun / u.yr)).value
 DECAY_LAWS = ["Payne", "Shibazaki", "Zhang"]
+M_suncgs = M_sun.to(u.g).value
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description='Compute decaying field and period due to mass accreton rate in super-critical regime')
@@ -51,7 +52,7 @@ if __name__ == "__main__":
     P_inits = parameters["P"]
     decay_laws = parameters["laws"]
     input_mdots = parameters["mdot"]
-    M_NS = parameters["M"][0] * u.M_sun
+    M_NS = parameters["M"][0] * M_suncgs
     R_NS = parameters["R"][0]
     chi = parameters["chi"][0]
     alpha = parameters["alpha"][0]
@@ -127,7 +128,7 @@ if __name__ == "__main__":
                     # mean of mdot, 1 day bendtimescale, variance = 1 mdot
                     timescale = 10 / 365
 
-                    Ledd = eddington_luminosity(M_NS.value)
+                    Ledd = eddington_luminosity(M_NS / M_suncgs)
 
                     np.random.seed(15)
                     Fvar = 0.20
