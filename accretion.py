@@ -27,7 +27,7 @@ def accretion_efficiency(M, R):
     return Gcgs * M  / (2 * ccgs ** 2 * R)
 
 @jit(nopython=True)
-def accretion_luminosity(M_dot, M=1.4 * M_suncgs, R=10**6):
+def accretion_luminosity(M_dot, M=1.4 * M_suncgs, R=1e6):
     """Returns the accretion luminosity in erg/s (see Vasilopoulos et al 2019 paragraph after eq 8.
         M_dot: astropy.quantity,
             Mass-accretion rate in g/s
@@ -51,7 +51,7 @@ def eddington_luminosity(Msuns):
             Mass in solar units
         Returns the Eddington luminosity in erg/s (cgs)
     """
-    return 1.26 * Msuns * 10**38.
+    return 1.26 * Msuns * 1e38
 
 
 def inverse_magnetospheric_radius(Mdot, R, ns, psi=0.5):
@@ -109,11 +109,14 @@ def mass_transfer_inner_radius(m_0, e_wind=0.5):
     Parameters
     ----------
     m_0: float
-        Mass-transfer rate at the donor
+        Mass-transfer rate at the donor. Must be below 2.5 otherwise return the same valeu (i.e. assume all mass makes it to the CO)
     e_wind: float
         Fraction of radiative energy that goes to accelerate the outflow
     Returns the mass-transfer rate at the inner radius of the disk in units of m_0 (i.e. fraction of m_0 that makes it to the BH or NS)
     """
+
+    if m_0 <2.5:
+        return 1
     a = e_wind * (0.83 - 0.25 * e_wind)
     # 2/5 = 0.4
     return (1. - a) / (1. - a * (0.4 * m_0) ** (- 0.5))
@@ -193,7 +196,7 @@ def Mdot_root(Mdot, Mdot0, Mdotisco, R_sph, mu, M_NS=M_NS_default, psi=0.5):
 
 
 @jit(nopython=True)
-def mass_transfer_rate_mag_radius(Mdot0, mu, Medd, R_sph, M_NS=M_NS_default, psi=0.5, e_wind=0.5, tol=10**-4):
+def mass_transfer_rate_mag_radius(Mdot0, mu, Medd, R_sph, M_NS=M_NS_default, psi=0.5, e_wind=0.5, tol=1e-4):
     """Solves Equation (6) from Mushtukov et al. 2019 numerically, where R is replaced by Rmag. All parameters in cgs
 
     Parameters
@@ -218,16 +221,18 @@ def mass_transfer_rate_mag_radius(Mdot0, mu, Medd, R_sph, M_NS=M_NS_default, psi
     Returns the mass-transfer rate at the magnetospheric radius by solving Equation (6) numerically
     """
     mdot = Mdot0 / Medd
+    # this returns 1 if mdot is below 2.5 (as the approximation does not hold there) and we assume all mass makes it to the CO
     M_isco = mass_transfer_inner_radius(mdot, e_wind) * Mdot0
+    
     M_a = M_isco
+
     M_b = Mdot0 
     err_tol = Mdot0 * tol
     err = (M_b - M_a) / 2.
     f_a = Mdot_root(M_a, Mdot0, M_isco, R_sph, mu, M_NS, psi)
-    
-        
+    # calculate the M_c here in case Mdot = Mdotisco (this happens if mdot is below 2.5, as the approximation does not hold there. In this case we simply return the same Mdot0)
+    M_c = (M_a + M_b) / 2.    
     while err > err_tol:
-        M_c = (M_a + M_b) / 2.
         f_c = Mdot_root(M_c, Mdot0, M_isco, R_sph, mu, M_NS, psi)
         if f_c * f_a <0:
             M_b = M_c
@@ -235,6 +240,7 @@ def mass_transfer_rate_mag_radius(Mdot0, mu, Medd, R_sph, M_NS=M_NS_default, psi
             M_a = M_c
             f_a = f_c
         err = abs(M_a - M_b) / 2.
+        M_c = (M_a + M_b) / 2.
 
     return M_c
 
@@ -422,7 +428,7 @@ def chashkina_inner_radius(Rin, viscosity_alpha=0.5, m_ns=1):
         """
     factor =  170 * (viscosity_alpha / 0.1) ** (2.25) * m_ns ** (-10/9.) #9/4 = 2.25
     mu = (Rin / factor) ** (2.25)
-    B =  magnetic_moment_to_B(mu * 10**30) #  * u.G * u.cm ** 3
+    B =  magnetic_moment_to_B(mu * 1e30) #  * u.G * u.cm ** 3
     return B
 
 
@@ -580,7 +586,7 @@ def propeller_torque(Mdot, M_NS, omega, Rm):
     return -Mdot * Gcgs * M_NS / Rm / omega
 
 @jit(nopython=True)
-def magnetic_moment(B, R_NS=10**6):
+def magnetic_moment(B, R_NS=1e6):
     """See e.g. Equation (2) from Tsygankov.
     Everything in cgs (Gauss and cm)
 
@@ -592,3 +598,18 @@ def magnetic_moment(B, R_NS=10**6):
         Radius of the NS
     """
     return B * R_NS**3. / 2.
+
+@jit(nopython=True)
+def gravitational_quadrupole_torque(P, Q=1e38):
+    """Computes the gravitational quadrupole torque. See e.g. Equation 8 from Suvorov 2021.
+    Parameters
+    ----------
+    P: float,
+        Spin period of the NS in seconds
+    Q: float, default 10^38
+        Quadrupole moment of the NS in cgs units (default 10^38)
+    Returns the gravitational quadrupole torque in erg/s
+    """
+    nu = 1/ P
+    T_G = 2**13 * Gcgs * np.pi**6 *Q**2 * nu**5 / (75 * ccgs**5)
+    return T_G
