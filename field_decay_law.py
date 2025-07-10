@@ -1,5 +1,4 @@
-import astropy.units as u
-from astropy.constants import G
+from constants import M_suncgs, Gcgs
 from math import sqrt, exp
 import cython 
 
@@ -27,15 +26,15 @@ class BaseFieldDecayLaw:
         return self.name
     
 class PayneFieldDecay(BaseFieldDecayLaw):
-    def __init__(self, B_init:  cython.double, name="Payne", Mc=2*10**-4 * u.Msun, Mb=4.6*10**-5 * u.Msun):
+    def __init__(self, B_init:  cython.double, name="Payne", Mc:cython.double=2*10**-4 * M_suncgs, Mb:cython.double=4.6*10**-5 * M_suncgs):
         """Parameters
             Mc: astropy.units
             Mb: astropy.units
         """
         super().__init__(B_init, name)
            
-        self.Mc = Mc.to(u.g).value
-        self.Mb = Mb.to(u.g).value
+        self.Mc = Mc
+        self.Mb = Mb
         self.n = self.find_n()
 
 
@@ -82,7 +81,7 @@ class PayneFieldDecay(BaseFieldDecayLaw):
 
 class ZhangFieldDecayClassic(BaseFieldDecayLaw):
     """Magnetic field Decay law according to Zhang & Kojima 2006"""
-    def __init__(self, B_init:  cython.double, Mdot:  cython.double, ns, name="Zhang", Mcrust=0.2 * u.M_sun, xi: cython.float=0.1):
+    def __init__(self, B_init:  cython.double, Mdot:cython.double, ns, name="Zhang", Mcrust:cython.double=0.2 * M_suncgs, xi: cython.float=0.1):
         """Parameters
         
             ns:float,
@@ -98,8 +97,8 @@ class ZhangFieldDecayClassic(BaseFieldDecayLaw):
         if not 0 <=xi <=1:
             raise ValueError("Parameter xi must be between 0 and 1!")
 
-        self.Bf = self.bottom_field(ns, Mdot, xi=0.5)
-        self.Mcrust = Mcrust.to(u.g).value
+        self.Bf = self.bottom_field(ns, Mdot)
+        self.Mcrust = Mcrust
         self.xi = xi
         x0_2 = (self.Bf/self.B_init)**(4/7)
         self.C = 1 + sqrt(1 - x0_2)
@@ -116,9 +115,8 @@ class ZhangFieldDecayClassic(BaseFieldDecayLaw):
 
         Returns the bottom magnetic field in G
         """
-        Gcgs = G.to(u.cm**3/u.g/u.s**2).value
         #return 1.32 * 10**8 * (Mdot / ns.Medd) **(1/2) * ((ns.M*u.g).to(u.M_sun).value/1.4)**(1/4) * (ns.R_NS / 10**6)**(-5/4) * xi**(-7/4)
-        return ((ns.R_NS/psi)**7 * 2 * Gcgs * ns.M * Mdot**2 / (ns.R_NS**12)) ** (1/4)
+        return ((ns.R_NS/psi)**7 * 2 * Gcgs * ns.M * Mdot**2 / (ns.R_NS**12 / 2**4)) ** (0.25) # 0.25 = 1/4
     
     def decay_field(self, deltaM:cython.double, Rmag=None):
         """Equation 17
@@ -129,7 +127,7 @@ class ZhangFieldDecayClassic(BaseFieldDecayLaw):
     
 class ZhangFieldDecayDiff(BaseFieldDecayLaw):
     """Magnetic field Decay law according to Zhang & Kojima 2006"""
-    def __init__(self, B_init:cython.double, R_NS:cython.float=10**6., Mcrust=0.2 * u.M_sun, xi:  cython.float=0.1, name="Zhang (Modified)"):
+    def __init__(self, B_init:cython.double, R_NS:cython.float=10**6., Mcrust:cython.double=0.2 * M_suncgs, xi:cython.float=0.1, name="Zhang (Modified)"):
         """Parameters
         
             R_NS:float,
@@ -145,7 +143,7 @@ class ZhangFieldDecayDiff(BaseFieldDecayLaw):
         if not 0 <=xi <=1:
             raise ValueError("Parameter xi must be between 0 and 1!")
 
-        self.Mcrust = Mcrust.to(u.g).value
+        self.Mcrust = Mcrust
         self.xi = xi
         self.B = B_init
         self.R_NS = R_NS
@@ -161,12 +159,12 @@ class ZhangFieldDecayDiff(BaseFieldDecayLaw):
 
 class ShibazakiFieldDecay(BaseFieldDecayLaw):
     """Decay law according to et al. 1989"""
-    def __init__(self, B_init:  cython.double, name="Shibazaki", Mb=1e-4 * u.M_sun):
+    def __init__(self, B_init:cython.double, name="Shibazaki", Mb:  cython.double=1e-4 * M_suncgs):
         super().__init__(B_init, name)
-        self.Mb = Mb.to(u.g).value
+        self.Mb = Mb
 
 
-    def decay_field(self, deltaM:  cython.double, Rmag=None)-> None:
+    def decay_field(self, deltaM:cython.double, Rmag=None)-> None:
         """Returns the new B field
         
         deltaM: float,

@@ -1,23 +1,37 @@
 #!/usr/bin/env python
 # coding: utf-8
 import numpy as np
-import astropy.units as u
-from astropy.constants import G, c, M_sun
 from math import cos, sin, pi
 import cython
+from constants import M_suncgs, Gcgs, ccgs
 
-Gcgs = G.to(u.cm**3/u.g/u.s**2).value
-ccgs = c.to(u.cm/u.s).value
-M_suncgs = M_sun.to(u.g).value
+# Enable Cython optimizations
+if cython.compiled:
+    from cython import boundscheck, wraparound
+else:
+    def boundscheck(x):
+        return lambda f: f
+    def wraparound(x):
+        return lambda f: f
+
+
 
 class CO():
     """Base compact object class"""
+    
+    # Cython attribute declarations
+    M: cython.double
+    Rg: cython.double
+    spin: cython.double
+    Risco: cython.double
+    Medd: cython.double
+    
     def __init__(self, M:  cython.double, spin:  cython.double=0):
         self.M = M
         self.Rg = gravitational_radius(self.M)
         self.spin = spin
         self.Risco = isco_radius(self.M, self.spin)
-        efficiency = accretion_efficiency(self.M, self.Risco)
+        efficiency: cython.double = accretion_efficiency(self.M, self.Risco)
         self.Medd = eddington_luminosity(self.M / M_suncgs)/ ccgs** 2 / efficiency
     
     def __str__(self):
@@ -31,7 +45,19 @@ class CO():
 
 class NS(CO):
     """Neutron Star class"""
-    def __init__(self, P_NS: cython.double, M_NS=1.4 * M_suncgs, R_NS=10**6, chi:  cython.double=np.pi / 4, alpha:  cython.double=np.pi / 4, eta: cython.float=0.1):
+    
+    # Cython attribute declarations
+    R_NS: cython.double
+    I: cython.double
+    P_NS: cython.double
+    omega: cython.double
+    chi: cython.double
+    alpha: cython.double
+    eta: cython.float
+    Rco: cython.double
+    Rlc: cython.double
+    
+    def __init__(self, P_NS: cython.double, M_NS: cython.double=1.4 * M_suncgs, R_NS: cython.double=10**6, chi:  cython.double=np.pi / 4, alpha:  cython.double=np.pi / 4, eta: cython.float=0.1):
         """
         P_NS: float,
             Spin period in seconds
@@ -66,6 +92,8 @@ class NS(CO):
             f"Rlc (light cylinder cm): {self.Rlc:.2f}\n"
             f"Eddington mass-accretion rate: {self.Medd:.2e} g/s")
 
+    @boundscheck(False)
+    @wraparound(False)
     def torque(self, accretion_torque: cython.double, magnetic_torque: cython.double, braking_torque: cython.double, deltaT: cython.double) -> None:
 
         """Torque the NS, updating P_NS, chi and alpha based on the input torques. The NS parameters are updated internally
@@ -100,19 +128,21 @@ class NS(CO):
         self.alpha += deltaalpha
     
 
+    @boundscheck(False)
+    @wraparound(False)
     def update_period(self, period: cython.double) -> None:
         """Set the period of the NS (in seconds)"""
         self.P_NS = period
-        self.omega: cython.double = 2. * pi / period # angular velocity
-        self.spin: cython.double = self.period_to_spin()
-        self.Risco: cython.double = isco_radius(self.M, self.spin)
-        self.Rco: cython.double = self.corotation_radius() # in units of ISCO
-        self.Rlc: cython.double= self.light_cylinder() # in units of ISCO
+        self.omega = 2. * pi / period # angular velocity
+        self.spin = self.period_to_spin()
+        self.Risco = isco_radius(self.M, self.spin)
+        self.Rco = self.corotation_radius() # in units of ISCO
+        self.Rlc = self.light_cylinder() # in units of ISCO
         efficiency: cython.double = accretion_efficiency(self.M, self.Risco)
-        self.Medd: cython.double = eddington_luminosity(self.M / M_suncgs)/ ccgs** 2. / efficiency
+        self.Medd = eddington_luminosity(self.M / M_suncgs)/ ccgs** 2. / efficiency
         
 
-    def cos_function(self, ):
+    def cos_function(self, ) -> cython.double:
         """Equation 20 combined with eta (see Eq 26) from Byryukov and Abolmasov 2021"""
         A: cython.double = 1 - self.eta/2. * (sin(self.chi)**2. * sin(self.alpha)**2. + 2 *cos(self.chi)**2. * cos(self.alpha)**2.)
         return self.eta / A
@@ -166,6 +196,9 @@ class NS(CO):
         return a_spin
 
 #@jit(nopython=True)
+@cython.cfunc
+@boundscheck(False)
+@wraparound(False)
 def accretion_efficiency(M:  cython.double, R:  cython.double)-> cython.double:
     """Returns the accretion efficiency. Everything in cgs
     M: float
@@ -177,7 +210,7 @@ def accretion_efficiency(M:  cython.double, R:  cython.double)-> cython.double:
     return Gcgs * M  / (2. * ccgs ** 2. * R)
 
 #@jit(nopython=True)
-def accretion_luminosity(M_dot:  cython.double, M=1.4 * M_suncgs, R=10**6):
+def accretion_luminosity(M_dot: cython.double, M: cython.double=1.4 * M_suncgs, R: cython.double=10**6) -> cython.double:
     """Returns the accretion luminosity in erg/s (see Vasilopoulos et al 2019 paragraph after eq 8.
         M_dot: astropy.quantity,
             Mass-accretion rate in g/s
@@ -187,10 +220,13 @@ def accretion_luminosity(M_dot:  cython.double, M=1.4 * M_suncgs, R=10**6):
             Radius of the compact object or inner stable orbit in cm
         Returns the accretion luminosity in erg/s
     """
-    efficiency = accretion_efficiency(M, R)
+    efficiency: cython.double = accretion_efficiency(M, R)
     return efficiency * M_dot * ccgs ** 2.
 
 #@jit(nopython=True)
+@cython.cfunc
+@boundscheck(False)
+@wraparound(False)
 def isco_radius(M:  cython.double, a:  cython.double=0.998)-> cython.double:
     """Returns the ISCO radius for a given mass in cm.
     Parameters
@@ -204,8 +240,8 @@ def isco_radius(M:  cython.double, a:  cython.double=0.998)-> cython.double:
     if a > 1:
         raise ValueError(f"Error in calculation of the ISCO radius. \nSpin parameter (a={a:.6f}) exceeds maximum allowed value of 1.")
     
-    z1 = 1 + (1 - a**2.) ** (1/3) * ((1 + a)** (1/3) + (1-a) ** (1/3))
-    z2 = np.sqrt(3. * a ** 2. + z1**2)
+    z1: cython.double = 1 + (1 - a**2.) ** (1/3) * ((1 + a)** (1/3) + (1-a) ** (1/3))
+    z2: cython.double = np.sqrt(3. * a ** 2. + z1**2)
     # this implements the +- sign of a
     return (3. + z2 - a * np.sqrt((3 - z1) * (3 + z1 + 2 * z2))) * gravitational_radius(M)
 
@@ -220,6 +256,9 @@ def schwarzschild_radius(M:  cython.double)-> cython.double:
     return 2. * gravitational_radius(M)
 
 #@jit(nopython=True)
+@cython.cfunc
+@boundscheck(False)
+@wraparound(False)
 def gravitational_radius(M:  cython.double)-> cython.double:
     """Returns the gravitational radius for a given mass in g.
     Parameters
@@ -232,6 +271,9 @@ def gravitational_radius(M:  cython.double)-> cython.double:
     return (Gcgs * M/ ccgs**2.)
 
 #@jit(nopython=True)
+@cython.cfunc
+@boundscheck(False)
+@wraparound(False)
 def eddington_luminosity(M:  cython.double)-> cython.double:
     """The classical Eddington luminosity for a given mass.
         Parameters
@@ -243,7 +285,7 @@ def eddington_luminosity(M:  cython.double)-> cython.double:
     return 1.26 * M * 10**38.
 
 #@jit(nopython=True)
-def eddington_accretion_rate(M, R_in):
+def eddington_accretion_rate(M: cython.double, R_in: cython.double) -> cython.double:
     """The classical Eddington luminosity for a given mass.
         Parameters
         ----------
@@ -251,13 +293,13 @@ def eddington_accretion_rate(M, R_in):
         R_in: astropy.quantity
         Returns the Eddington accretion rate in quantity
     """
-    efficiency = accretion_efficiency(M, R_in)
+    efficiency: cython.double = accretion_efficiency(M, R_in)
     # convert erg to cgs
     return eddington_luminosity(M) / efficiency / ccgs**2.
 
 
 #@jit(nopython=True)
-def magnetic_moment_to_B(mu, Rns = 10 **6):
+def magnetic_moment_to_B(mu: cython.double, Rns: cython.double = 10 **6) -> cython.double:
     """Compute magnetic field from magnetic moment. See after Equation (2) from Tsygankov et al 2016
         Returns the magnetic field in G units.
         Parameters
@@ -267,5 +309,5 @@ def magnetic_moment_to_B(mu, Rns = 10 **6):
         
         Rns: float
             Radius of the neutron star in cm. Default 10^6 cm (1 km)"""
-    B = 2 * mu / (Rns) ** 3
+    B: cython.double = 2 * mu / (Rns) ** 3
     return B

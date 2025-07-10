@@ -3,15 +3,12 @@
 import numpy as np
 from math import sqrt
 import astropy.units as u
-from astropy.constants import G, c, M_sun
+from constants import Gcgs, ccgs, M_suncgs
 from numba import jit, float64
 from numba.types import UniTuple
 
 # jit does make the code faster
 
-Gcgs = G.to(u.cm**3/u.g/u.s**2).value
-ccgs = c.to(u.cm/u.s).value
-M_suncgs = M_sun.to(u.g).value
 
 M_NS_default = 2.7837738189772707e+33 # 1.4 M_sun in grams
 
