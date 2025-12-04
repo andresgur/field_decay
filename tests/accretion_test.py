@@ -17,7 +17,7 @@ class TestAccretionFlow(unittest.TestCase):
         mdot = 1000
         ewind = 0.5
         Rin = 10
-        Rsph = spherization_radius_poutanen(mdot, Rin, ewind) / Rin / mdot
+        Rsph = spherization_radius_poutanen(mdot, ewind) / mdot
         # see Poutanen below Eq 23
         self.assertAlmostEqual(
             Rsph, 1.16, msg="Spherization radius is wrong!", places=2
@@ -28,7 +28,7 @@ class TestAccretionFlow(unittest.TestCase):
         )
 
         ewind = 1
-        Rsph = spherization_radius_poutanen(mdot, Rin, ewind) / Rin / mdot
+        Rsph = spherization_radius_poutanen(mdot, ewind) / mdot
         self.assertAlmostEqual(
             Rsph, 1.04, msg="Spherization radius is wrong!", places=2
         )
@@ -45,7 +45,7 @@ class TestAccretionFlow(unittest.TestCase):
         for e_wind in [0.25, 0.5, 0.75, 1.0]:
             for mdot in mdots:
                 Mdot = mdot * ns.MEdd
-                Rsph = spherization_radius_poutanen(mdot, ns.Risco, e_wind)
+                Rsph = spherization_radius_poutanen(mdot, e_wind) * ns.Risco
 
                 mass_transfer_sec = mass_transfer_rate_mag_radius_secant(
                     Mdot, mu, ns.MEdd, Rsph, ns.M, e_wind=e_wind, tol=1e-10
