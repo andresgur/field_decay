@@ -102,7 +102,7 @@ class ZhangFieldDecayClassic(BaseFieldDecayLaw):
         B_init: cython.double,
         Mdot: cython.double,
         M_NS: cython.double = 1.4 * M_suncgs,
-        R_NS: cython.doube = 1e6,
+        R_NS: cython.double = 1e6,
         name="Zhang",
         Mcrust: cython.double = 0.2 * M_suncgs,
         xi: cython.float = 0.1,
