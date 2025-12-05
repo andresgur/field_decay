@@ -1,0 +1,230 @@
+from .constants import M_suncgs, Gcgs
+from math import exp
+import cython
+
+
+class BaseFieldDecayLaw:
+    def __init__(self, B_init: cython.double, name):
+        """Parameters
+        B_init: float,
+            Initial magnetic field in Gauss
+        """
+        self.name = name
+        self.B_init = B_init
+        self.mass_accumulated: cython.double = 0
+        self.B = B_init
+
+    def decay_field(self, deltaM: cython.double, Rmag=None) -> None:
+        """Decays the initial magnetic field based on an accreted mass
+
+        deltaM: float,
+            The mass accumulated in the next delta t (i.e. the new instantaneous mass accreted onto the NS Mdot x deltaT)
+        """
+        raise NotImplementedError("This method should be implemented by subclasses")
+
+    def __repr__(self) -> str:
+        return self.name
+
+
+class PayneFieldDecay(BaseFieldDecayLaw):
+    def __init__(
+        self,
+        B_init: cython.double,
+        name="Payne",
+        Mc: cython.double = 2 * 10**-4 * M_suncgs,
+        Mb: cython.double = 4.6 * 10**-5 * M_suncgs,
+    ):
+        """Parameters
+        Mc: astropy.units
+        Mb: astropy.units
+        """
+        super().__init__(B_init, name)
+
+        self.Mc = Mc
+        self.Mb = Mb
+        self.n = self.find_n()
+
+    def find_n(
+        self,
+    ):
+        def func_n(n, K):
+            return n**-2.25 - n**-3.25 - K
+
+        n_a = 1.0001
+        n_b = 3
+        err_tol = 0.001
+        err = (n_b - n_a) / 2
+        K = (self.Mc / self.Mb) ** -2.25
+        f_na = func_n(n_a, K)
+
+        n_c: cython.double
+        f_nc: cython.double
+
+        if K > 0.11:
+            raise ValueError(
+                "K (%.2f) needs to be below 0.11, Mc needs to be greater than %.1e g/s!"
+                % (K, self.Mc)
+            )
+
+        while err > err_tol:
+            n_c = (n_a + n_b) / 2
+            f_nc = func_n(n_c, K)
+            if f_na * f_nc < 0:
+                n_b = n_c
+            else:
+                n_a = n_c
+                f_na = f_nc
+            err = abs(n_b - n_a) / 2
+        return n_c
+
+    def decay_field(self, deltaM: cython.double, Rmag=None) -> None:
+        """Updates the B field after accreting Mdot over delta T.
+
+        Equation 8 in Payne and Melatos 2007
+        Equation 35 in Payne 2004
+        """
+        self.mass_accumulated += deltaM
+        if self.mass_accumulated < self.Mc / self.n:
+            self.B = self.B_init * (1 - self.mass_accumulated / self.Mc)
+        else:
+            self.B = self.B_init * (self.mass_accumulated / self.Mb) ** (
+                -2.25
+            )  # 9/4 = 2.25
+
+
+class ZhangFieldDecayClassic(BaseFieldDecayLaw):
+    """Magnetic field Decay law according to Zhang & Kojima 2006
+    This assumes Mdot is constant
+    """
+
+    def __init__(
+        self,
+        B_init: cython.double,
+        Mdot: cython.double,
+        M_NS: cython.double = 1.4 * M_suncgs,
+        R_NS: cython.doube = 1e6,
+        name="Zhang",
+        Mcrust: cython.double = 0.2 * M_suncgs,
+        xi: cython.float = 0.1,
+    ):
+        """Parameters
+
+        ns:float,
+            Neutron Star object
+        Mcrust:astropy.units
+            Mass of the NS crust
+        xi: float,
+            Parameter between zero and 1 which takes into account deviations from frozen-in plasma. Default 0.1
+
+        """
+        super().__init__(B_init, name)
+
+        if not 0 <= xi <= 1:
+            raise ValueError("Parameter xi must be between 0 and 1!")
+
+        self.Bf = self.bottom_field(M_NS, R_NS, Mdot)
+        self.Mcrust = Mcrust
+        self.xi = xi
+        x0_2 = (self.Bf / self.B_init) ** (4 / 7)
+        self.C = 1 + (1 - x0_2) ** 0.5  # sqrt(1 - x0_2)
+        self.B = self.B_init
+
+    def bottom_field(self, M_NS, R_NS, Mdot: cython.double, psi: cython.float = 0.5):
+        """Computes the bottom magnetic field according to Equation 18
+
+        Rm = \psi x (\fract{mu^4}{2 GM \dot{M}^2})^(1/7) = R_NS
+        {R_NS / psi}^7 = (\fract{mu^4}{2 GM \dot{M}^2})
+        \mu = B R_NS^3/2
+        {R_NS / \psi}^7 =
+        2 GM \dot{M}^2{R_NS/psi}^7 = {B R_NS^3/2}^4
+        2 GM \dot{M}^2{R_NS/psi}^7 = B^4 R_NS^12/2^4
+        2^4 = 16
+        32 GM {R_NS/psi}^7\dot{M}^2\frac{1}{R_NS^12} = B^4
+        32 GM \frac{1}{\psi^7R_NS^5}\dot{M}^2 = B^4
+
+        Parameters
+        ----------
+        M_NS:float,
+            Neutron Star mass in g
+        R_NS: float
+            Neutorn star radius in cm
+
+        Returns the bottom magnetic field in G
+        """
+        # return 1.32 * 10**8 * (Mdot / ns.Medd) **(1/2) * ((ns.M*u.g).to(u.M_sun).value/1.4)**(1/4) * (ns.R_NS / 10**6)**(-5/4) * xi**(-7/4)
+        return (
+            32.0 * Gcgs * M_NS * Mdot**2 / (psi**7.0 * R_NS**5.0) ** 0.25
+        )  # 0.25 = 1/4
+
+    def decay_field(self, deltaM: cython.double, Rmag=None):
+        """Equation 17"""
+        self.mass_accumulated += deltaM
+        y = 2 * self.xi * self.mass_accumulated / (7 * self.Mcrust)
+        self.B = self.Bf / (1 - (self.C / exp(y) - 1) ** 2) ** (1.75)  # 7/4
+
+
+class ZhangFieldDecayDiff(BaseFieldDecayLaw):
+    """Magnetic field Decay law according to Zhang & Kojima 2006"""
+
+    def __init__(
+        self,
+        B_init: cython.double,
+        R_NS: cython.float = 1e6,
+        Mcrust: cython.double = 0.2 * M_suncgs,
+        xi: cython.float = 0.1,
+        name="Zhang (Modified)",
+    ):
+        """Parameters
+
+        R_NS:float,
+            Radius of the NS in cm
+        Mcrust:astropy.units
+            Mass of the NS crust
+        xi: float,
+            Parameter between zero and 1 which takes into account deviations from frozen-in plasma. Default 0.1
+
+        """
+        super().__init__(B_init, name)
+
+        if not 0 <= xi <= 1:
+            raise ValueError("Parameter xi must be between 0 and 1!")
+
+        self.Mcrust = Mcrust
+        self.xi = xi
+        self.B = B_init
+        self.R_NS = R_NS
+
+    def decay_field(self, deltaM: cython.double, Rmag: cython.double) -> None:
+        """Equation 16"""
+        self.mass_accumulated += deltaM
+        rmag_rns = (Rmag - self.R_NS) ** 0.5  # sqrt(Rmag - R_NS)
+        deltaB = (
+            -self.xi
+            * deltaM
+            * rmag_rns
+            * self.B
+            / (self.Mcrust * (Rmag**0.5 - rmag_rns))
+        )  # (sqrt(Rmag) - rmag_rns)
+        self.B = self.B + deltaB
+
+
+class ShibazakiFieldDecay(BaseFieldDecayLaw):
+    """Decay law according to et al. 1989"""
+
+    def __init__(
+        self,
+        B_init: cython.double,
+        name="Shibazaki",
+        Mb: cython.double = 1e-4 * M_suncgs,
+    ):
+        super().__init__(B_init, name)
+        self.Mb = Mb
+
+    def decay_field(self, deltaM: cython.double, Rmag=None) -> None:
+        """Returns the new B field
+
+        deltaM: float,
+            Mass accreted in g in a delta t
+        """
+        self.mass_accumulated += deltaM
+        self.B = self.B_init / (1.0 + self.mass_accumulated / self.Mb)
