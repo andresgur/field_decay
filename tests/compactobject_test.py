@@ -1,33 +1,33 @@
 import unittest
 from field_decay.constants import M_suncgs, Gcgs, ccgs
-from field_decay.compact_object import CO, NS
+from field_decay.compact_objects import CO, NS
 from math import pi
 
 
 class TestCompactObject(unittest.TestCase):
     def test_Mass_setter(self):
         M = 10
-        co = CO(M=M, a=0.0)
+        co = CO(M=M, spin=0.0)
         self.assertEqual(co.M, M * M_suncgs)
 
     def test_isco_schwarzchild(self):
-        co = CO(M=10, a=0)
+        co = CO(M=10, spin=0)
         Risco_expected = 6  # in units of Rg for a=0
         self.assertAlmostEqual(co.Risco / co.Rg, Risco_expected)
 
     def test_isco_kerr(self):
-        co = CO(M=10, a=1.0)
+        co = CO(M=10, spin=1.0)
         Risco_expected = 1  # in units of Rg for a=0
         self.assertAlmostEqual(co.Risco / co.Rg, Risco_expected)
 
     def test_efficiency(self):
-        co = CO(M=10, a=0)
+        co = CO(M=10, spin=0)
         eff = co.accretion_efficiency(co.Risco)
         self.assertAlmostEqual(1 / 12, eff, places=0)
 
     def test_eddington_luminosity(self):
         M = 10
-        co = CO(M=M, a=0)
+        co = CO(M=M, spin=0)
         L_edd_expected = 1.26 * M  # in 10**38 erg/s (wikipedia)
         self.assertAlmostEqual(co.LEdd / 10**38, L_edd_expected, delta=0.1)
 
