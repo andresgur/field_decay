@@ -2,18 +2,20 @@
 requires = [
     "setuptools>=64",
     "wheel",
-    "cython>=3.0",
+    "Cython",
 ]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "field-decay"
-version = "1.0"
+version = "1.0.1"
 dependencies = [
     "numpy>=1.24.4",
     "astropy>=5.3.3",
     "scipy>=1.1.1",
     "celerite>=0.4.3",
+    "Cython>=3.0.0",
+    "numba>=0.55.1",
     "matplotlib"
 ]
 requires-python = ">=3.8"
@@ -57,3 +59,10 @@ testpaths = [
 
 [tool.sphinx]
 title = "Field Decay"
+
+[tool.setuptools]
+ext-modules = [
+  {name = "neutron_star", sources = ["field_decay/compact_objects/neutron_star.py"]},
+  {name = "co", sources = ["field_decay/compact_objects/co.py"]},
+    {name = "field_decay_law", sources = ["field_decay/field_decay_law.py"]},
+]
