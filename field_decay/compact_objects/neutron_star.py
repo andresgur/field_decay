@@ -141,8 +141,9 @@ class NS(CO):
 
         B_init = self.B
         if decay_law == "Zhang":
-            R_NS = self.R_NS
-            self.decay_law_implementation = ZhangFieldDecayDiff(B_init, R_NS, **kwargs)
+            self.decay_law_implementation = ZhangFieldDecayDiff(
+                B_init, self.R_NS, **kwargs
+            )
         elif decay_law == "Shibazaki":
             self.decay_law_implementation = ShibazakiFieldDecay(B_init, **kwargs)
         elif decay_law == "Payne":
@@ -169,11 +170,11 @@ class NS(CO):
     # ------- Physical relations -------
     def magnetic_moment(self):
         """μ = (B * R_NS^3) / 2 (cgs: Gauss*cm^3)."""
-        return self.B * self.R_NS**3.0 / 2.0
+        return 0.5 * self.B * self.R_NS**3.0
 
     def corotation_radius(self) -> cython.double:
         """R_co = (G M / ω^2)^{1/3} (cgs)."""
-        return (Gcgs * self.M / self.omega**2.0) ** (1 / 3)
+        return (Gcgs * self.M / self.omega**2.0) ** (1.0 / 3.0)
 
     def light_cylinder(self) -> cython.double:
         """R_lc = c / ω (cgs)."""
@@ -223,33 +224,34 @@ class NS(CO):
         """
         Update P, chi, alpha based on torques over a time step deltaT.
         """
-        sinchi = sin(self.chi)
-        coschi = cos(self.chi)
-        sinalpha = sin(self.alpha)
-        cosalpha = cos(self.alpha)
+        sinchi: cython.double = sin(self.chi)
+        coschi: cython.double = cos(self.chi)
+        sinalpha: cython.double = sin(self.alpha)
+        cosalpha: cython.double = cos(self.alpha)
 
-        Nspin = (
+        Nspin: cython.double = (
             accretion_torque * cosalpha
             + braking_torque * (1 + sinchi**2.0)
             + magnetic_torque
         )
 
-        normfactor = 1 - self.eta / 2.0 * (
-            (sinchi * sinalpha) ** 2.0 + 2 * (coschi * cosalpha**2.0) ** 2.0
+        normfactor: cython.double = 1 - self.eta / 2.0 * (
+            (sinchi * sinalpha) ** 2.0 + 2 * (coschi * cosalpha) ** 2.0
+        )
+        # Eq 26 from Byryukov and Abolmasov 2021, with the sinchicoschi included in the normalization factor because it can be factored out
+        Nchi: cython.double = (sinchi * coschi) * (
+            (self.eta / normfactor) * accretion_torque * (sinalpha**2.0) * cosalpha
+            + braking_torque
         )
 
-        Nchi = (self.eta / normfactor) * accretion_torque * (
-            sinalpha**2.0
-        ) * cosalpha * (sinchi * coschi) + braking_torque * (sinchi * coschi)
+        Nalpha: cython.double = -accretion_torque * sinalpha
 
-        Nalpha = -accretion_torque * sinalpha
+        omegaI: cython.double = self.omega * self.I
+        deltaTomegaI: cython.double = deltaT / omegaI
 
-        omegaI = self.omega * self.I
-        deltaTomegaI = deltaT / omegaI
-
-        deltaP = -Nspin * self.P * deltaTomegaI
-        deltachi = Nchi * deltaTomegaI
-        deltaalpha = Nalpha * deltaTomegaI
+        deltaP: cython.double = -Nspin * self.P * deltaTomegaI
+        deltachi: cython.double = Nchi * deltaTomegaI
+        deltaalpha: cython.double = Nalpha * deltaTomegaI
 
         self.P = self.P + deltaP
         self.chi += deltachi
