@@ -84,4 +84,4 @@ class CO:
 
     def accretion_efficiency(self, R: cython.double) -> cython.double:
         """Accretion efficiency (dimensionless)."""
-        return Gcgs * self.M / (2.0 * (ccgs**2.0) * R)
+        return self.Rg / (2.0 * R)
