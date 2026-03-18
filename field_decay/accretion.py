@@ -65,7 +65,7 @@ def luminosity_super_edd_NS(Rmag, Rsph, e_wind=0.5, beaming=1):
 
 
 @jit(nopython=True)
-def mass_transfer_inner_radius(m_0, e_wind=0.5):
+def mass_transfer_inner_radius(m_0: float, e_wind: float = 0.5) -> float:
     """Equation 23 from Poutanen et al 2007. Only valid for m_0 > 2.5, if below returns 1
 
     Parameters
@@ -105,7 +105,7 @@ def spherization_radius(m_0, e_wind=0):
 
 
 @jit(nopython=True)
-def spherization_radius_poutanen(m_0, e_wind=0.5):
+def spherization_radius_poutanen(m_0: float, e_wind: float = 0.5) -> float:
     """Equation 21 from Poutanen et al 2007.
 
     Parameters
@@ -127,7 +127,9 @@ def spherization_radius_poutanen(m_0, e_wind=0.5):
 
 
 @jit(nopython=True)
-def magnetospheric_radius(Mdot, mu, M_NS=M_NS_default, psi=0.5):
+def magnetospheric_radius(
+    Mdot: float, mu: float, M_NS: float = M_NS_default, psi: float = 0.5
+) -> float:
     """Return the magnetospheric radius given by my thesis (dipole magnetic field) Equation 2.19. Units cgs (remember Gauss is cgs)
 
     Parameters:
@@ -145,6 +147,7 @@ def magnetospheric_radius(Mdot, mu, M_NS=M_NS_default, psi=0.5):
     return psi * (mu**4.0 / (2.0 * Gcgs * M_NS * Mdot**2.0)) ** (1.0 / 7.0)
 
 
+@njit
 def _Mdot_root(Mdot, Mdot0, Mdotisco, R_sph, mu, M_NS=M_NS_default, psi=0.5):
     """Auxiliary for the numerical solver of the mass transfer rate at the magnetospheric radius.
     This is Equation (6) from Mushtukov et al. 2019, but with R replaced by Rmag
@@ -173,7 +176,8 @@ def _Mdot_root(Mdot, Mdot0, Mdotisco, R_sph, mu, M_NS=M_NS_default, psi=0.5):
 
 
 # we cannot use decorators here because of kwargs
-def secant_method(func, x0, x1, tol=1e-4, max_iter=100, *args):
+@njit
+def secant_method(func, x0, x1, tol=1e-4, max_iter: int = 100, *args):
     """
     Finds the root of a function using the Secant method. x0<x1
 
@@ -223,6 +227,7 @@ def secant_method(func, x0, x1, tol=1e-4, max_iter=100, *args):
     return None
 
 
+@jit(nopython=True)
 def mass_transfer_rate_mag_radius_brent(
     Mdot0,
     mu,
@@ -231,7 +236,7 @@ def mass_transfer_rate_mag_radius_brent(
     M_NS=M_NS_default,
     psi=0.5,
     tol=1e-4,
-    max_iter=500,
+    max_iter: int = 500,
 ):
     """Solves Equation (6) from Mushtukov et al. 2019 numerically, where R is replaced by Rmag. All parameters in cgs
 
@@ -268,6 +273,7 @@ def mass_transfer_rate_mag_radius_brent(
     return res
 
 
+@njit
 def mass_transfer_rate_mag_radius_secant(
     Mdot0,
     mu,
@@ -276,8 +282,8 @@ def mass_transfer_rate_mag_radius_secant(
     M_NS=M_NS_default,
     psi=0.5,
     tol=1e-1,
-    max_iter=500,
-):
+    max_iter: int = 500,
+) -> float:
     """Solves Equation (6) from Mushtukov et al. 2019 numerically, where R is replaced by Rmag. All parameters in cgs
 
     Parameters
@@ -315,6 +321,7 @@ def mass_transfer_rate_mag_radius_secant(
     return M_2
 
 
+@njit
 def mass_transfer_rate_mag_radius_bisection(
     Mdot0,
     mu,
@@ -323,7 +330,7 @@ def mass_transfer_rate_mag_radius_bisection(
     M_NS=M_NS_default,
     psi=0.5,
     err_tol=1e-2,
-    max_iter=200,
+    max_iter: int = 200,
 ):
     """Solves Equation (6) from Mushtukov et al. 2019 numerically, where R is replaced by Rmag. All parameters in cgs
 
@@ -528,11 +535,9 @@ def mcrit(B):
         Magnetic field strength (assumed in G)
     Returns the critical Mdot (in Mcrt (g/s))
     """
+    logB = log(B)
     return exp(
-        6.9233445
-        + 4.2990807 * log(B)
-        - 0.1794699 * log(B) ** 2.0
-        + 0.0025782 * log(B) ** 3.0
+        6.9233445 + 4.2990807 * logB - 0.1794699 * logB**2.0 + 0.0025782 * logB**3.0
     )
 
 
@@ -573,7 +578,10 @@ def chashkina_inner_radius(Rin, viscosity_alpha=0.5, m_ns=1):
     return B
 
 
-@njit
+@jit(
+    float64(float64, float64),
+    nopython=True,
+)
 def fastness_parameter(Rmag: float, Rco: float) -> float:
     """Computes the fastness parameter. Both radii must be provided in same units
 
@@ -585,6 +593,25 @@ def fastness_parameter(Rmag: float, Rco: float) -> float:
         Co-rotation radius
     """
     return (Rmag / Rco) ** (1.5)
+
+
+@njit
+def accretion_torque(Mdot: float, Rmag: float, M_NS: float = M_NS_default) -> float:
+    r"""Computes the accretion torque onto a NS.
+
+    $$N = \dot{M} * \sqrt{G \, M \, R{_\mathrm{mag}}}$$
+
+    Parameters
+    ----------
+    Mdot: float
+        Instantaneous mass-accretion rate at Rmag. Units of g/s
+    Rmag: float
+        Magnetospheric radius in cm
+    M_NS: astropy.quantity
+        Mass of the NS, in g. Defaults to 1.4 M_sun in grams
+    """
+    N_acc = Mdot * (Gcgs * M_NS * Rmag) ** 0.5  # e.g. Ghosh & Lamb 1979 Eq 2
+    return N_acc
 
 
 @njit
@@ -610,6 +637,7 @@ def torque_wang(Mdot, Rmag, Rco, M_NS=M_NS_default):
     return N_0 * n
 
 
+# if there are defaults do not type the function with jit, as it does not work with kwargs. We can use njit instead, but we cannot use the default value for M_NS (we can set it to 1.4 M_sun in grams, but it is not as clear)
 @njit
 def magnetic_torque_wang(Mdot, Rmag, Rco, M_NS=M_NS_default):
     """This is like the above, but only considering the magnetic term.
@@ -632,33 +660,14 @@ def magnetic_torque_wang(Mdot, Rmag, Rco, M_NS=M_NS_default):
 
 
 @njit
-def accretion_torque(Mdot: float, Rmag: float, M_NS: float = M_NS_default):
-    r"""Computes the accretion torque onto a NS.
-
-    $$N = \dot{M} * \sqrt{G \, M \, R{_\mathrm{mag}}}$$
-
-    Parameters
-    ----------
-    Mdot: float
-        Instantaneous mass-accretion rate at Rmag. Units of g/s
-    Rmag: float
-        Magnetospheric radius in cm
-    M_NS: astropy.quantity
-        Mass of the NS, in g. Defaults to 1.4 M_sun in grams
-    """
-    N_acc = Mdot * (Gcgs * M_NS * Rmag) ** 0.5  # e.g. Ghosh & Lamb 1979 Eq 2
-    return N_acc
-
-
-@njit
 def accretion_torque_dai(
     Mdot: float,
     Rmag: float,
     omega: float,
     M_NS: float = M_NS_default,
-    gamma=1,
-    delta=0.1,
-    psi=0.5,
+    gamma: float = 1,
+    delta: float = 0.1,
+    psi: float = 0.5,
 ) -> float:
     """Computes the accretion torque onto a NS accounting for the magnetosphere interaction (Eq. 10 from Lai & Li 2006)
 
@@ -677,7 +686,7 @@ def accretion_torque_dai(
     """
     xi = 2.0**0.5 * gamma * delta  # sqrt(2) * gamma * delta
     N_acc = (
-        xi * accretion_torque(Mdot, Rmag, M_NS) * (1.0 - omega) / (psi ** (3.5))
+        xi * accretion_torque(Mdot, Rmag, M_NS) * (1.0 - omega) / (psi**3.5)
     )  # e.g. Ghosh & Lamb 1979 Eq 2
     return N_acc
 
@@ -704,7 +713,9 @@ def magnetic_torque_dai(mu: float, Rmag: float, omega: float, gamma=1) -> float:
 
 
 @njit
-def magnetic_torque_dai_propeller(mu: float, Rmag: float, omega: float, gamma=1):
+def magnetic_torque_dai_propeller(
+    mu: float, Rmag: float, omega: float, gamma: float = 1
+):
     """Computes the magnetic torque onto a NS (valid during propeller i.e. for w <1) (Lai & Li 2006)
     Their Equation 7
 
@@ -748,8 +759,8 @@ def magnetic_moment(B: float, R_NS: float = 10**6):
     return B * R_NS**3.0 / 2.0
 
 
-@jit(nopython=True)
-def gravitational_quadrupole_torque(P, Q=1e38):
+@njit
+def gravitational_quadrupole_torque(P: float, Q: float = 1e38):
     """Computes the gravitational quadrupole torque. See e.g. Equation 8 from Suvorov 2021.
     Parameters
     ----------
