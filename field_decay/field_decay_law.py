@@ -107,12 +107,19 @@ class ZhangFieldDecayClassic(BaseFieldDecayLaw):
         Mcrust: cython.double = 0.2 * M_suncgs,
         xi: cython.float = 0.1,
     ):
-        """Parameters
-
-        ns:float,
-            Neutron Star object
-        Mcrust:astropy.units
-            Mass of the NS crust
+        """
+        Parameters
+        ----------
+        B_init: float,
+            Initial magnetic field in Gauss
+        Mdot: float,
+            Mass accretion rate in g/s
+        M_NS:float,
+            Neutron Star mass in g. Default 1.4 M_sun
+        R_NS:float,
+            Radius of the NS in cm. Default 1e6 cm
+        Mcrust:float
+            Mass of the NS crust in g. Default 0.2 M_sun
         xi: float,
             Parameter between zero and 1 which takes into account deviations from frozen-in plasma. Default 0.1
 
@@ -153,8 +160,8 @@ class ZhangFieldDecayClassic(BaseFieldDecayLaw):
         """
         # return 1.32 * 10**8 * (Mdot / ns.Medd) **(1/2) * ((ns.M*u.g).to(u.M_sun).value/1.4)**(1/4) * (ns.R_NS / 10**6)**(-5/4) * xi**(-7/4)
         return (
-            32.0 * Gcgs * M_NS * Mdot**2 / (psi**7.0 * R_NS**5.0) ** 0.25
-        )  # 0.25 = 1/4
+            32.0 * Gcgs * M_NS * Mdot**2 / (psi**7.0 * R_NS**5.0)
+        ) ** 0.25  # 0.25 = 1/4
 
     def decay_field(self, deltaM: cython.double, Rmag=None):
         """Equation 17"""
@@ -164,7 +171,22 @@ class ZhangFieldDecayClassic(BaseFieldDecayLaw):
 
 
 class ZhangFieldDecayDiff(BaseFieldDecayLaw):
-    """Magnetic field Decay law according to Zhang & Kojima 2006"""
+    """Magnetic field Decay law according to Zhang & Kojima 2006
+    This is the numerical solution to the ODE integrated step-by-step, which assumes Mdot is constant and the magnetospheric radius is recomputed at each step from the current B, matching
+    the assumption of the analytical solution.
+
+    Parameters
+    ----------
+    B_init: float,
+        Initial magnetic field in Gauss
+    R_NS:float,
+        Radius of the NS in cm
+    Mcrust:float
+        Mass of the NS crust
+    xi: float,
+        Parameter between zero and 1 which takes into account deviations from frozen-in plasma. Default 0.1
+
+    """
 
     def __init__(
         self,
