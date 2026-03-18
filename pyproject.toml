@@ -8,7 +8,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "field-decay"
-version = "1.0.1"
+version = "1.0.5"
 dependencies = [
     "numpy>=1.24.4",
     "astropy>=5.3.3",
@@ -27,7 +27,10 @@ readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE.md"]
 keywords = [
-    "???",
+    "neutron star",
+    "magnetic field decay",
+    "astrophysics",
+    "accretion",
 ]
 classifiers=[
     "Programming Language :: Python :: 3",
