@@ -771,5 +771,5 @@ def gravitational_quadrupole_torque(P: float, Q: float = 1e38):
     Returns the gravitational quadrupole torque in erg/s
     """
     nu = 1 / P
-    T_G = 2**13 * Gcgs * pi**6 * Q**2 * nu**5 / (75 * ccgs**5)
+    T_G = -(2**13) * Gcgs * pi**6 * Q**2 * nu**5 / (75 * ccgs**5)
     return T_G
