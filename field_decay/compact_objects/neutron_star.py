@@ -6,14 +6,38 @@ from ..field_decay_law import (
     ShibazakiFieldDecay,
     PayneFieldDecay,
     ZhangFieldDecayDiff,
+    ZhangFieldDecayClassic,
 )
 from .co import CO
 
-DECAY_LAWS = ["Payne", "Shibazaki", "Zhang"]
+DECAY_LAWS = ["Payne", "Shibazaki", "Zhang", "Zhang_simple"]
 
 
 class NS(CO):
-    """Neutron Star class."""
+    """Neutron Star class.
+
+    Parameters
+    ----------
+    P: float,
+        Spin period in seconds
+    M_NS: float,
+        Mass of the NS in grams
+    R_NS: float,
+        Radius of the NS in cm
+    B: float,
+        Magnetic field in Gauss
+    chi: float,
+        Angle between spin and magnetic axis in radians
+    alpha: float,
+        Angle between spin and accretion axis in radians
+    eta: float,
+        Coupling factor for the torque (0 <= eta <= 1)
+    decay_law: str,
+        Magnetic field decay law to use. Options: "Shibazaki", "Zhang
+        (diff)", "Zhang (analytical)", "Payne"
+    decay_law_kwargs: dict,
+        Additional parameters for the decay law (e.g. xi for Zhang)
+    """
 
     R_NS: cython.double
     I: cython.double
@@ -37,6 +61,7 @@ class NS(CO):
         alpha: cython.double = pi / 4,
         eta: cython.float = 0.1,
         decay_law: str = "Shibazaki",
+        **decay_law_kwargs,
     ):
         # Initialize base class with mass
         # we cannot call base class, cause we do not have the spin and the mass setter needs to update the moment of inertia too
@@ -53,8 +78,7 @@ class NS(CO):
         self.B = B  # sets mu
         self.P = P  # sets omega, Rco, Rlc, and syncs spin
 
-        if decay_law in DECAY_LAWS:
-            self.set_decay_law(decay_law)
+        self.set_decay_law(decay_law, **decay_law_kwargs)
 
     def __str__(self):
         return (
@@ -116,9 +140,10 @@ class NS(CO):
         ----------
         decay_law : str
             Name of the decay law to apply. Supported options:
-            - "Zhang"      : Zhang & Kojima (diffusion-based) model.
+            - "Zhang"      : Zhang & Kojima (diffusion-based) model (differential form).
             - "Shibazaki"  : Shibazaki et al. (1989) empirical model.
             - "Payne"      : Payne & Melatos (2004/2007) model.
+            - "Zhang_simple" : Simplified Zhang & Kojima model (analytical form).
         **kwargs : dict
             Additional keyword arguments passed to the selected decay law
             implementation. These allow customization of parameters such as
@@ -138,21 +163,24 @@ class NS(CO):
         >>> ns.set_decay_law("Shibazaki")
         >>> ns.set_decay_law("Zhang", xi=0.1)
         """
-
+        if decay_law not in DECAY_LAWS:
+            raise ValueError(
+                "Decay keyword %s not valid! Available options are: %s"
+                % (decay_law, " ".join(DECAY_LAWS))
+            )
         B_init = self.B
         if decay_law == "Zhang":
             self.decay_law_implementation = ZhangFieldDecayDiff(
+                B_init, self.R_NS, **kwargs
+            )
+        elif decay_law == "Zhang_simple":
+            self.decay_law_implementation = ZhangFieldDecayClassic(
                 B_init, self.R_NS, **kwargs
             )
         elif decay_law == "Shibazaki":
             self.decay_law_implementation = ShibazakiFieldDecay(B_init, **kwargs)
         elif decay_law == "Payne":
             self.decay_law_implementation = PayneFieldDecay(B_init, **kwargs)
-        else:
-            raise ValueError(
-                "Decay keyword %s not valid! Available options are: %s"
-                % (decay_law, " ".join(DECAY_LAWS))
-            )
 
     @property
     def omega(self) -> cython.double:
@@ -225,7 +253,7 @@ class NS(CO):
         Update P, chi, alpha based on torques over a time step deltaT.
         """
         sinchi: cython.double = sin(self.chi)
-        coschi: cython.double = cos(self.chi)
+        # coschi: cython.double = cos(self.chi)
         sinalpha: cython.double = sin(self.alpha)
         cosalpha: cython.double = cos(self.alpha)
 
@@ -235,14 +263,15 @@ class NS(CO):
             + magnetic_torque
         )
 
-        normfactor: cython.double = 1 - self.eta / 2.0 * (
-            (sinchi * sinalpha) ** 2.0 + 2 * (coschi * cosalpha) ** 2.0
-        )
         # Eq 26 from Byryukov and Abolmasov 2021, with the sinchicoschi included in the normalization factor because it can be factored out
-        Nchi: cython.double = (sinchi * coschi) * (
-            (self.eta / normfactor) * accretion_torque * (sinalpha**2.0) * cosalpha
-            + braking_torque
-        )
+        # normfactor: cython.double = 1 - self.eta / 2.0 * (
+        #    (sinchi * sinalpha) ** 2.0 + 2 * (coschi * cosalpha) ** 2.0
+        # )
+        # Nchi: cython.double = (sinchi * coschi) * (
+        #    (self.eta / normfactor) * accretion_torque * (sinalpha**2.0) * cosalpha
+        #    + braking_torque
+        # )
+        Nchi: cython.double = 0.0  # ignore chi evolution
 
         Nalpha: cython.double = -accretion_torque * sinalpha
 
