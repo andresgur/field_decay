@@ -99,7 +99,7 @@ def accretion_torque_dai(
 
 
 @njit
-def magnetic_torque_dai(mu: float, Rmag: float, omega: float, gamma=1, chi=0) -> float:
+def magnetic_torque_dai(mu: float, Rmag: float, omega: float, gamma=1) -> float:
     """Computes the magnetic torque onto a NS (valid during accretion) i.e. for w >=1 (Lai & Li 2006)
         Their Equation 7
 
@@ -113,12 +113,9 @@ def magnetic_torque_dai(mu: float, Rmag: float, omega: float, gamma=1, chi=0) ->
         Fastness parameter
     gamma: float,
         Factor to account from Equation 4
-    chi: float,
-        Angle between the magnetic and disc axis (Default to 0, i.e. aligned rotator).
-        This is not included in the original equation, but it follows from the dependency of Bz with cos\chi and Bphi with Bz (see Wang 1997; Liu & Li 2021)
     """
     factor = gamma * mu**2.0 / (3.0 * Rmag**3)
-    Nmag = factor * (1.0 - 2.0 * omega + 2.0 * omega**2.0 / 3.0) * cos(chi) ** 2.0
+    Nmag = factor * (1.0 - 2.0 * omega + 2.0 * omega**2.0 / 3.0)
     return Nmag
 
 
