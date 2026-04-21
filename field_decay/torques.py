@@ -1,7 +1,7 @@
-from math import cos, sin
+from math import pi
 from numba import jit, njit, float64
 from accretion import M_NS_default
-from constants import Gcgs
+from constants import Gcgs, ccgs
 
 
 @njit
@@ -125,7 +125,6 @@ def magnetic_torque_radial_twisting(
     Rmag: float,
     omega: float,
     gamma: float = 1,
-    chi: float = 0,
     h_0: float = 0.1,
 ) -> float:
     """Computes the torque due to radial shearing at R0 from Wang 1997 (Equation 8, but without the accretion and threaded disc contribution)
@@ -136,13 +135,13 @@ def magnetic_torque_radial_twisting(
 
     """
     factor = 2 * gamma * mu**2.0 / (Rmag**3.0)
-    Nmag = factor * (1 - omega) * h_0 * sin(chi) ** 2.0
+    Nmag = factor * (1 - omega) * h_0
     return Nmag
 
 
 @njit
 def magnetic_torque_dai_propeller(
-    mu: float, Rmag: float, omega: float, gamma: float = 1, chi: float = 0
+    mu: float, Rmag: float, omega: float, gamma: float = 1
 ):
     """Computes the magnetic torque onto a NS (valid during propeller i.e. for w <1) (Lai & Li 2006)
     Their Equation 7
@@ -157,12 +156,9 @@ def magnetic_torque_dai_propeller(
         Fastness parameter
     gamma: float,
         Factor to account from Equation 4
-    chi: float,
-        Angle between the magnetic and disc axis (Default to 0, i.e. aligned rotator).
-        This is not included in the original equation, but it follows from the dependency of Bz with cos\chi and Bphi with Bz (see Wang 1997; Liu & Li 2021)
     """
     factor = gamma * mu**2.0 / (3.0 * Rmag**3.0)
-    Nmag = factor * (2.0 / (3.0 * omega) - 1.0) * cos(chi) ** 2.0
+    Nmag = factor * (2.0 / (3.0 * omega) - 1.0)
     return Nmag
 
 
@@ -178,3 +174,19 @@ def propeller_torque(Mdot: float, M_NS: float, omega: float, Rm: float) -> float
         Magnetospheric radius
     """
     return -Mdot * Gcgs * M_NS / Rm / omega
+
+
+@njit
+def gravitational_quadrupole_torque(P: float, Q: float = 1e38):
+    """Computes the gravitational quadrupole torque. See e.g. Equation 8 from Suvorov 2021.
+    Parameters
+    ----------
+    P: float,
+        Spin period of the NS in seconds
+    Q: float, default 10^38
+        Quadrupole moment of the NS in cgs units (default 10^38)
+    Returns the gravitational quadrupole torque in erg/s
+    """
+    nu = 1 / P
+    T_G = -(2**13) * Gcgs * pi**6 * Q**2 * nu**5 / (75 * ccgs**5)
+    return T_G
