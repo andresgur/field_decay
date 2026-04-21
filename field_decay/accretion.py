@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
-from numpy import log, exp
-from .constants import Gcgs, ccgs
+from numpy import log, exp, sin, linspace, trapz
+from .constants import Gcgs
 from math import pi
 from numba import jit, njit, float64
 from scipy.optimize import brentq
@@ -159,11 +159,10 @@ def rmag_inclination_factor(chi=0, integration_points=10000):
         Number of points to use for the numerical integration between 0 and 2pi. Default 10000
     Returns the inclination factor to be applied to the magnetospheric radius
     """
-    import numpy as np
 
-    x = np.linspace(0, 2 * pi, integration_points)
-    y = (1 + 3 * (np.sin(chi) * np.sin(x)) ** 2) ** (2 / 7)
-    average = np.trapz(y, x) / (2 * pi)
+    x = linspace(0, 2 * pi, integration_points)
+    y = (1 + 3 * (sin(chi) * sin(x)) ** 2) ** (2 / 7)
+    average = trapz(y, x) / (2 * pi)
     return average
 
 
