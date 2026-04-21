@@ -625,22 +625,6 @@ def magnetic_moment(B: float, R_NS: float = 10**6):
     return B * R_NS**3.0 / 2.0
 
 
-@njit
-def gravitational_quadrupole_torque(P: float, Q: float = 1e38):
-    """Computes the gravitational quadrupole torque. See e.g. Equation 8 from Suvorov 2021.
-    Parameters
-    ----------
-    P: float,
-        Spin period of the NS in seconds
-    Q: float, default 10^38
-        Quadrupole moment of the NS in cgs units (default 10^38)
-    Returns the gravitational quadrupole torque in erg/s
-    """
-    nu = 1 / P
-    T_G = -(2**13) * Gcgs * pi**6 * Q**2 * nu**5 / (75 * ccgs**5)
-    return T_G
-
-
 def scale_height(m_r, R, Rg, R0, efficiency):
     """Equation 18 from Lipunova+99, works for both sub and super critical disks as long as advection is neglected
         Just replace Mdot(R) by the appropiate calculation (i.e. without or with outflows)
