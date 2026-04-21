@@ -1,0 +1,186 @@
+from math import cos, sin
+from numba import jit, njit, float64
+from accretion import M_NS_default
+from constants import Gcgs
+from accretion import fastness_parameter
+
+
+@njit
+def accretion_torque(Mdot: float, Rmag: float, M_NS: float = M_NS_default) -> float:
+    r"""Computes the accretion torque onto a NS.
+
+    $$N = \dot{M} * \sqrt{G \, M \, R{_\mathrm{mag}}}$$
+
+    Parameters
+    ----------
+    Mdot: float
+        Instantaneous mass-accretion rate at Rmag. Units of g/s
+    Rmag: float
+        Magnetospheric radius in cm
+    M_NS: astropy.quantity
+        Mass of the NS, in g. Defaults to 1.4 M_sun in grams
+    """
+    N_acc = Mdot * (Gcgs * M_NS * Rmag) ** 0.5  # e.g. Ghosh & Lamb 1979 Eq 2
+    return N_acc
+
+
+@njit
+def torque_wang(Mdot, Rmag, Rco, M_NS=M_NS_default):
+    """Computes the accretion torque onto a NS according to Wang+95 (actually taken from Vasilopoulos+2018).
+    Equation 19 from Wang+95
+    All units in cgs
+
+    Parameters
+    ----------
+    Mdot: float
+        Instantaneous mass-accretion rate at Rmag. Units of g/s
+    Rmag: float
+        Magnetospheric radius in cm
+    Rco: float
+        Co-rotation radius in cm
+    M_NS: float
+        Mass of the NS, defaults to 1.4 solar massess (in g)
+    """
+    N_0 = accretion_torque(Mdot, Rmag, M_NS)
+    omega = fastness_parameter(Rmag, Rco)
+    n = (7.0 / 6.0 - (4 / 3.0) * omega + (1 / 9.0) * omega**2.0) / (1.0 - omega)
+    return N_0 * n
+
+
+# if there are defaults do not type the function with jit, as it does not work with kwargs. We can use njit instead, but we cannot use the default value for M_NS (we can set it to 1.4 M_sun in grams, but it is not as clear)
+@njit
+def magnetic_torque_wang(Mdot, Rmag, Rco, M_NS=M_NS_default):
+    """This is like the above, but only considering the magnetic term.
+    It is a spin down term due to magnetic field lines threading the disc beyond the co-rotation radius
+
+    Parameters
+    ----------
+    Mdot: float
+        Instantaneous mass-accretion rate at Rmag. Units of g/s
+    Rmag: float
+        Magnetospheric radius in cm
+    Rco: float
+        Co-rotation radius in cm
+    M_NS: float
+        Mass of the NS, defaults to 1.4 solar massess (in g)
+    """
+    omega = fastness_parameter(Rmag, Rco)
+    N_0 = accretion_torque(Mdot, Rmag, M_NS)
+    return N_0 / (1.0 - omega) * (1.0 / 6.0 - omega / 3.0 + omega**2.0 / 9)
+
+
+@njit
+def accretion_torque_dai(
+    Mdot: float,
+    Rmag: float,
+    omega: float,
+    M_NS: float = M_NS_default,
+    gamma: float = 1,
+    delta: float = 0.1,
+    psi: float = 0.5,
+) -> float:
+    """Computes the accretion torque onto a NS accounting for the magnetosphere interaction (Eq. 10 from Lai & Li 2006)
+
+    Parameters
+    ----------
+    Mdot: float
+        Instantaneous mass-accretion rate at Rmag. Units of g/s
+    Rmag: float
+        Magnetospheric radius in cm
+    omega: float
+        Fastness parameter
+    M_NS: float
+        Mass of the NS in g
+    float: xi,
+        Factor to account for not full transfer of angular momentum
+    """
+    xi = 2.0**0.5 * gamma * delta  # sqrt(2) * gamma * delta
+    N_acc = (
+        xi * accretion_torque(Mdot, Rmag, M_NS) * (1.0 - omega) / (psi**3.5)
+    )  # e.g. Ghosh & Lamb 1979 Eq 2
+    return N_acc
+
+
+@njit
+def magnetic_torque_dai(mu: float, Rmag: float, omega: float, gamma=1, chi=0) -> float:
+    """Computes the magnetic torque onto a NS (valid during accretion) i.e. for w >=1 (Lai & Li 2006)
+        Their Equation 7
+
+    Parameters
+    ----------
+    mu: float
+        Magnetic moment
+    Rmag: float
+        Magnetospheric radius in cm
+    omega: float
+        Fastness parameter
+    gamma: float,
+        Factor to account from Equation 4
+    chi: float,
+        Angle between the magnetic and disc axis (Default to 0, i.e. aligned rotator).
+        This is not included in the original equation, but it follows from the dependency of Bz with cos\chi and Bphi with Bz (see Wang 1997; Liu & Li 2021)
+    """
+    factor = gamma * mu**2.0 / (3.0 * Rmag**3)
+    Nmag = factor * (1.0 - 2.0 * omega + 2.0 * omega**2.0 / 3.0) * cos(chi) ** 2.0
+    return Nmag
+
+
+@njit
+def magnetic_torque_radial_twisting(
+    mu: float,
+    Rmag: float,
+    omega: float,
+    gamma: float = 1,
+    chi: float = 0,
+    h_0: float = 0.1,
+) -> float:
+    """Computes the torque due to radial shearing at R0 from Wang 1997 (Equation 8, but without the accretion and threaded disc contribution)
+
+    h_0: float,
+        The aspect ratio of the disk at Rmag (H/R).
+
+
+    """
+    factor = 2 * gamma * mu**2.0 / (Rmag**3.0)
+    Nmag = factor * (1 - omega) * h_0 * sin(chi) ** 2.0
+    return Nmag
+
+
+@njit
+def magnetic_torque_dai_propeller(
+    mu: float, Rmag: float, omega: float, gamma: float = 1, chi: float = 0
+):
+    """Computes the magnetic torque onto a NS (valid during propeller i.e. for w <1) (Lai & Li 2006)
+    Their Equation 7
+
+    Parameters
+    ----------
+    mu: float
+        Magnetic moment
+    Rmag: float
+        Magnetospheric radius in cm
+    omega: float
+        Fastness parameter
+    gamma: float,
+        Factor to account from Equation 4
+    chi: float,
+        Angle between the magnetic and disc axis (Default to 0, i.e. aligned rotator).
+        This is not included in the original equation, but it follows from the dependency of Bz with cos\chi and Bphi with Bz (see Wang 1997; Liu & Li 2021)
+    """
+    factor = gamma * mu**2.0 / (3.0 * Rmag**3.0)
+    Nmag = factor * (2.0 / (3.0 * omega) - 1.0) * cos(chi) ** 2.0
+    return Nmag
+
+
+@jit(float64(float64, float64, float64, float64), nopython=True)
+def propeller_torque(Mdot: float, M_NS: float, omega: float, Rm: float) -> float:
+    """Equation 12 from Illarionov & Sunyaev 1975 or Eq 42 from Abolmasov 2024 review
+
+    Parameters
+    ----------
+    omega: float,
+        Angular velocity of the NS (2 pi / P)
+    Rm :float,
+        Magnetospheric radius
+    """
+    return -Mdot * Gcgs * M_NS / Rm / omega
