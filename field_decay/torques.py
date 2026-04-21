@@ -1,7 +1,7 @@
 from math import cos, pi, sin
 from numba import jit, njit, float64
-from accretion import M_NS_default
-from constants import Gcgs, ccgs
+from .accretion import M_NS_default
+from .constants import Gcgs, ccgs
 
 
 @njit
