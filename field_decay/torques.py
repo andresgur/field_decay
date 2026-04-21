@@ -2,7 +2,6 @@ from math import cos, sin
 from numba import jit, njit, float64
 from accretion import M_NS_default
 from constants import Gcgs
-from accretion import fastness_parameter
 
 
 @njit
@@ -25,7 +24,7 @@ def accretion_torque(Mdot: float, Rmag: float, M_NS: float = M_NS_default) -> fl
 
 
 @njit
-def torque_wang(Mdot, Rmag, Rco, M_NS=M_NS_default):
+def torque_wang(Mdot: float, Rmag: float, omega: float, M_NS=M_NS_default):
     """Computes the accretion torque onto a NS according to Wang+95 (actually taken from Vasilopoulos+2018).
     Equation 19 from Wang+95
     All units in cgs
@@ -36,20 +35,19 @@ def torque_wang(Mdot, Rmag, Rco, M_NS=M_NS_default):
         Instantaneous mass-accretion rate at Rmag. Units of g/s
     Rmag: float
         Magnetospheric radius in cm
-    Rco: float
-        Co-rotation radius in cm
+    omega: float
+        Fastness parameter
     M_NS: float
         Mass of the NS, defaults to 1.4 solar massess (in g)
     """
     N_0 = accretion_torque(Mdot, Rmag, M_NS)
-    omega = fastness_parameter(Rmag, Rco)
     n = (7.0 / 6.0 - (4 / 3.0) * omega + (1 / 9.0) * omega**2.0) / (1.0 - omega)
     return N_0 * n
 
 
 # if there are defaults do not type the function with jit, as it does not work with kwargs. We can use njit instead, but we cannot use the default value for M_NS (we can set it to 1.4 M_sun in grams, but it is not as clear)
 @njit
-def magnetic_torque_wang(Mdot, Rmag, Rco, M_NS=M_NS_default):
+def magnetic_torque_wang(Mdot, Rmag, omega, M_NS=M_NS_default):
     """This is like the above, but only considering the magnetic term.
     It is a spin down term due to magnetic field lines threading the disc beyond the co-rotation radius
 
@@ -59,12 +57,11 @@ def magnetic_torque_wang(Mdot, Rmag, Rco, M_NS=M_NS_default):
         Instantaneous mass-accretion rate at Rmag. Units of g/s
     Rmag: float
         Magnetospheric radius in cm
-    Rco: float
-        Co-rotation radius in cm
+    omega: float
+        Fastness parameter
     M_NS: float
         Mass of the NS, defaults to 1.4 solar massess (in g)
     """
-    omega = fastness_parameter(Rmag, Rco)
     N_0 = accretion_torque(Mdot, Rmag, M_NS)
     return N_0 / (1.0 - omega) * (1.0 / 6.0 - omega / 3.0 + omega**2.0 / 9)
 
