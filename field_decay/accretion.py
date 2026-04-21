@@ -625,20 +625,25 @@ def magnetic_moment(B: float, R_NS: float = 10**6):
     return B * R_NS**3.0 / 2.0
 
 
-def scale_height(m_r, R, Rg, R0, efficiency):
-    """Equation 18 from Lipunova+99, works for both sub and super critical disks as long as advection is neglected
+def scale_height(m_r, R, R0):
+    """Equation 18 from Lipunova+99 (simplified for the acc efficiency), works for both sub and super critical disks as long as advection is neglected
         Just replace Mdot(R) by the appropiate calculation (i.e. without or with outflows)
-        Everything in cgs units
+        Everything in cgs units.
+        H = Rg * m_r * 3 / 4 / efficiency * (1 - (R0 / R) ** 0.5)
+        efficiency = Rg / (2R0)
+        H = Rg * m_r * 3 / 4 / (Rg / (2R0)) * (1 - (R0 / R) ** 0.5)
+        H = m_r * 3 / 2 * R0 * (1 - (R0 / R) ** 0.5)
+
+    Parameters
+    ----------
     m_r:float
         (Dimensionless) Mass-transfer rate at every radii (or at a given radius R) in Eddington units
     R: float or array
         Radius or radii at which the scale height is to be calculated
-    Rg: float
-        Gravitational radius
     R0: float
         Inner radius of the disk (typically isco)
-    efficiency: float
-        Accretion efficiency
+
+
     """
-    H = Rg * m_r * 3 / 4 / efficiency * (1 - (R0 / R) ** 0.5)
+    H = m_r * 3 / 2 * R0 * (1 - (R0 / R) ** 0.5)
     return H
