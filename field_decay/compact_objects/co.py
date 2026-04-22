@@ -85,3 +85,17 @@ class CO:
     def accretion_efficiency(self, R: cython.double) -> cython.double:
         """Accretion efficiency (dimensionless)."""
         return self.Rg / (2.0 * R)
+
+    def omega(self, R: float):
+        """Calulate the Keplerian angular velocity at a given radius in cgs units
+
+        Parameters
+        ----------
+        R: float or array-like,
+            Radius at which to calculate the velocity in cm
+
+        Returns
+        -------
+        Returns the Keplerian angular velocity in rad/s
+        """
+        return (Gcgs * self.M / R**3) ** 0.5
