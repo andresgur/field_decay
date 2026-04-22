@@ -1,5 +1,4 @@
 import unittest
-from field_decay.constants import M_suncgs, Gcgs, ccgs
 from field_decay.accretion import (
     spherization_radius_poutanen,
     mass_transfer_inner_radius,
@@ -8,7 +7,6 @@ from field_decay.accretion import (
     secant_method,
 )
 from field_decay.compact_object import NS
-from math import pi
 import numpy as np
 
 
