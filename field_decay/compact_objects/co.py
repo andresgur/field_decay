@@ -86,7 +86,8 @@ class CO:
         """Accretion efficiency (dimensionless)."""
         return self.Rg / (2.0 * R)
 
-    def Omega(self, R: float):
+    # do not annotate as it breaks cython when input R is array
+    def Omega(self, R):
         """Calulate the Keplerian angular velocity at a given radius in cgs units
 
         Parameters
