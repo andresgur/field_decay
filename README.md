@@ -14,13 +14,17 @@ The main script `field_suppression.py` solves self-consistently the torque, magn
 Run the main script as `python field_suppression.py`. Use `-h` to see the list of input parameters. The output .dat file contains the following columns:
 1) Magnetic field in G
 2) The spin period in seconds
-3) The instantaneous mass accreted onto the NS in Msun/yr
-4) Magnetospheric radius (in km)
-5) Spherization radius (in km)
-6) Co-rotation radius (in km)
-7) The torque onto the NS in g cm2 / s2
-8) Spin-axis angle (in deg)
-9) Magnetic angle (in deg)
-10) A flag indicating whether the NS is in propeller (1) or not (0)
-11) A flag indicating whether the NS is pulsing (1) or not (0)
-12) The time in years
+3) Mdot_0 the mass-transfer rate (usually constant)
+4) The instantaneous mass accreted onto the NS in Msun/yr
+5) The critical mass-transfer the accretion column can sustain
+6) The mass-transfer rate at the magnetosphere
+7) Magnetospheric radius (in km)
+8) Inner disk radius ($R_{isco}$, $R_{NS} or $R_{mag}$) (in km)
+9) Spherization radius (in km)
+10) Co-rotation radius (in km)
+11) The torque onto the NS in g cm2 / s2
+12) Spin-axis angle (in deg)
+13) Magnetic angle (in deg)
+14) A flag indicating whether the NS is in propeller (1) or not (0)
+15) A flag indicating whether the NS is pulsing (1) or not (0)
+16) The time in years
