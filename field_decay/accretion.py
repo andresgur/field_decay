@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
-from numpy import log, exp, sin, linspace, trapz
-from .constants import Gcgs
+from numpy import log, exp, sin, linspace, trapezoid
+from .constants import Gcgs, k_T, ccgs
 from math import pi
 from numba import jit, njit, float64
 from scipy.optimize import brentq
@@ -162,7 +162,7 @@ def rmag_inclination_factor(chi=0, integration_points=10000):
 
     x = linspace(0, 2 * pi, integration_points)
     y = (1 + 3 * (sin(chi) * sin(x)) ** 2) ** (2 / 7)
-    average = trapz(y, x) / (2 * pi)
+    average = trapezoid(y, x) / (2 * pi)
     return average
 
 
@@ -598,7 +598,6 @@ def chashkina_inner_radius(Rin, viscosity_alpha=0.5, m_ns=1):
 
 
 @jit(
-    float64(float64, float64),
     nopython=True,
 )
 def fastness_parameter(Rmag: float, Rco: float) -> float:
@@ -624,25 +623,29 @@ def magnetic_moment(B: float, R_NS: float = 10**6):
     return B * R_NS**3.0 / 2.0
 
 
-def scale_height(m_r, R, R0):
-    """Equation 18 from Lipunova+99 (simplified for the acc efficiency), works for both sub and super critical disks as long as advection is neglected
-        Just replace Mdot(R) by the appropiate calculation (i.e. without or with outflows)
-        Everything in cgs units.
-        H = Rg * m_r * 3 / 4 / efficiency * (1 - (R0 / R) ** 0.5)
-        efficiency = Rg / (2R0)
-        H = Rg * m_r * 3 / 4 / (Rg / (2R0)) * (1 - (R0 / R) ** 0.5)
-        H = m_r * 3 / 2 * R0 * (1 - (R0 / R) ** 0.5)
+def scale_height(Omega, Wrphi, ewind=1):
+    """Compute the scale height of the disk.
 
     Parameters
     ----------
-    m_r:float
-        (Dimensionless) Mass-transfer rate at every radii (or at a given radius R) in Eddington units
-    R: float or array
-        Radius or radii at which the scale height is to be calculated
-    R0: float
-        Inner radius of the disk (typically isco)
-
-
+    Omega: float or array
+        Angular velocity at the radius (radii) of interest
+    Wrphi: float or array
+        Radial-azimuthal component of the stress tensor
     """
-    H = m_r * 3 / 2 * R0 * (1 - (R0 / R) ** 0.5)
+    H = 0.75 * k_T * ewind * Wrphi / (Omega * ccgs)
     return H
+
+
+def thindisctorque(Mdot, Omega, Rmin, R):
+    return Mdot * Omega / (2.0 * pi) * (1 - (Rmin / R) ** 0.5)
+
+
+def thickdisctorque(Mdot, Omega, Rmin, R):
+    return (
+        -Mdot
+        * Omega
+        / (4.0 * pi)
+        * (1 - (R / Rmin) ** 2.5)
+        / (1 + 1.5 * (R / Rmin) ** 2.5)
+    )
