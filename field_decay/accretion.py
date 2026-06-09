@@ -601,7 +601,9 @@ def chashkina_inner_radius(Rin, viscosity_alpha=0.5, m_ns=1):
     nopython=True,
 )
 def fastness_parameter(Rmag: float, Rco: float) -> float:
-    """Computes the fastness parameter. Both radii must be provided in same units
+    """Computes the fastness parameter: (Rmag / Rco)^(3/2).
+
+    Both radii must be provided in the same units.
 
     Parameters
     ----------
