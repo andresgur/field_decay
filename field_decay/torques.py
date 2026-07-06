@@ -50,7 +50,7 @@ def torque_wang(
 # if there are defaults do not type the function with jit, as it does not work with kwargs. We can use njit instead, but we cannot use the default value for M_NS (we can set it to 1.4 M_sun in grams, but it is not as clear)
 @njit
 def magnetic_torque_wang(Mdot, Rmag, omega, M_NS=M_NS_default, chi=0.0):
-    """This is like the above, but only considering the magnetic term.
+    r"""This is like the above, but only considering the magnetic term.
     It is a spin down term due to magnetic field lines threading the disc beyond the co-rotation radius
 
     Parameters
@@ -212,3 +212,27 @@ def gravitational_quadrupole_torque(P: float, Q: float = 1e38):
     nu = 1 / P
     T_G = -(2**13) * Gcgs * pi**6 * Q**2 * nu**5 / (75 * ccgs**5)
     return T_G
+
+
+@njit
+def quadrupole_moment(epsilon: float, Izz: float = None):
+    """Computes the quadrupole moment of a NS given its ellipticity (or deformation) epsilon. See e.g. Equation 9 from Suvorov 2021.
+
+    Parameters
+    ----------
+    epsilon: float,
+        Ellipticity (or deformation) of the NS, defined as (I_xx - I_yy) / I_zz, where I_xx, I_yy, and I_zz are the principal moments of inertia of the NS.
+    M_NS: float, default 1.4 M_sun in grams
+        Mass of the NS in grams
+    R_NS: float, default 10^6 cm
+        Radius of the NS in cm
+
+    Returns the quadrupole moment in cgs units
+    """
+    if Izz is None:
+        R_NS = 1e6  # cm
+        I_zz = (
+            (2 / 5) * M_NS_default * R_NS**2
+        )  # Moment of inertia for a uniform sphere
+    Q = epsilon * I_zz * (15 / (8 * pi)) ** 0.5
+    return Q
