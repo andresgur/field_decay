@@ -1,0 +1,7 @@
+test_timestepping.txt
+walkers.png
+../docs/oldscripts/
+test_timestepping.txt
+*.so
+*-info
+tests/
