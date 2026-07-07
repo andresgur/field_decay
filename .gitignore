@@ -1,7 +1,15 @@
 test_timestepping.txt
 walkers.png
 ../docs/oldscripts/
+docs/*.pdf
 test_timestepping.txt
 *.so
 *-info
 tests/
+field_decay/compact_objects/*.c
+field_decay/*.c
+#likely delete this file below
+field_decay/compact_object_functions.py
+scripts/.DS_Store
+scripts/__pycache__
+.DS_Store
