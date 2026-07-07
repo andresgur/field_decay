@@ -6,8 +6,7 @@
 54253	1.350429	4E-06				
 #54743						
 55660	1.367224	8E-06				
-# From Bachetti et al. 2022 (note some of the MJD changed with respect to the 2014 paper). The flux for 56694 is from nustar obsid 007 when Chandra was taken from the 2014 paper.						
-# The luminosity for this obs does not match that given by Brightman, which is 210 wtf! --> We have removed the value given by Matteo, best to use the value from Brightman as it seems more legit						
+# From Bachetti et al. 2022 (note some of the MJD changed with respect to the 2014/Brightman 2016 papers). The flux for 56694 is from nustar obsid 007 when Chandra was taken from the 2014 paper.						
 56681.24441	1.37266663829822	7.53685479958778E-06				
 56683.81009	1.37262405638959	3.01455488028707E-06				
 56688.80899	1.37259332745873	4.14482737368528E-06				
@@ -23,7 +22,7 @@
 59312.65089	1.38463958385488	4.02617623207342E-06				
 59326.0568	1.38447050510191	4.79189644874286E-06				
 59505.27806	1.38722048651654	6.35045623809688E-07				
-# luminosities from brightman et al. 2006, most from the diskbb, but 52443  from the powerlaw						
+# luminosities from brightman et al. 2016, most from the diskbb, but 52443 from the powerlaw (more reasonable estimate)					
 51471			0.8	0.5		
 						
 #52443			579	119.5	this obs is piled up and there is a large disagreement between the two measurements	
