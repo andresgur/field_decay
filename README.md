@@ -14,7 +14,7 @@ git clone https://github.com/andresgur/field-decay .
 ### Pip Install
 Navigate to the cloned directory and install the package using pip:
 ```bash
-cd accretion-disks
+cd field_decay
 pip install .
 ```
 
