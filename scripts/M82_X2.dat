@@ -1,0 +1,45 @@
+#MJD	P	P_err	L	L_err	Pdot	Pdot_err
+# From Liu 2024						
+52035	1.324474	5E-06				
+#53406						
+53599	1.345317	2E-06	92	2		
+54253	1.350429	4E-06				
+#54743						
+55660	1.367224	8E-06				
+# From Bachetti et al. 2022 (note some of the MJD changed with respect to the 2014 paper). The flux for 56694 is from nustar obsid 007 when Chandra was taken from the 2014 paper.						
+# The luminosity for this obs does not match that given by Brightman, which is 210 wtf! --> We have removed the value given by Matteo, best to use the value from Brightman as it seems more legit						
+56681.24441	1.37266663829822	7.53685479958778E-06				
+56683.81009	1.37262405638959	3.01455488028707E-06				
+56688.80899	1.37259332745873	4.14482737368528E-06				
+56694.12259	1.37256727206125	1.1303645498002E-07				
+56697.3807	1.37253394595563	1.50707954624041E-07				
+56700.75316	1.37247824278866	9.41848263464119E-06				
+# I add a slight modification to the MJD below so not to have the same value twice numerically
+56700.753165	1.37247777186469	2.44880380454145E-07				
+56720.87754	1.37219461671586	1.12975083968638E-06				
+57495.31178	1.37894700655633	3.80298969378131E-07				
+57641.99852	1.3813986384935	2.28991463811804E-06				
+58919.0953	1.38517699930215	1.34310072357699E-06				
+59312.65089	1.38463958385488	4.02617623207342E-06				
+59326.0568	1.38447050510191	4.79189644874286E-06				
+59505.27806	1.38722048651654	6.35045623809688E-07				
+# luminosities from brightman et al. 2006, most from the diskbb, but 52443  from the powerlaw						
+51471			0.8	0.5		
+						
+#52443			579	119.5	this obs is piled up and there is a large disagreement between the two measurements	
+53600			83	4.5		
+54938			3.6	1.4		
+#54950.0						
+55006			2.3	0.15		
+55013			1.2	0.3		
+55019			2.3	0.6		
+55019			1.1	0.35		
+55364			143	110		
+55397			1.9	1		
+55405			30	1		
+56148			197	52.5		
+#56347.0						
+56691			210	60		
+57038			39	4		
+57042			36	8.5		
+# From Bachetti et al. 2020 --> For M82						
