@@ -12,9 +12,6 @@ from field_decay.accretion import (
     fastness_parameter,
     mcrit,
     rmag_inclination_factor,
-    scale_height,
-    thindisctorque,
-    thickdisctorque,
 )
 
 from field_decay.torques import (
@@ -29,9 +26,7 @@ import numpy as np
 import astropy.units as u
 import matplotlib.pyplot as plt
 import argparse, time, os
-from math import log, pi
-from celerite.terms import RealTerm
-from celerite import GP
+from math import pi
 from tqdm import tqdm
 import shutil
 
@@ -376,26 +371,7 @@ if __name__ == "__main__":
                     # print(f"Delta T (s):{deltaT:.2f}")
                     mdots = np.full(nsteps, mdot, dtype=float)
 
-                    timescale = 10 / 365
-                    np.random.seed(15)
-                    Fvar = 0.20
-                    variance = Fvar**2 * mdot**2
-                    # mean of mdot, 1 day bendtimescale, variance = 1 mdot
-                    kernel = RealTerm(
-                        log_a=log(variance), log_c=log(2 * pi / timescale)
-                    )
-                    gp = GP(kernel, mean=mdot)
-                    gp.compute(times)
-                    # mdots = gp.sample()
-                    if np.any(mdots < 0):
-                        raise ValueError(
-                            "There are %d negative mdots"
-                            % (np.count_nonzero(mdots < 0))
-                        )
-
                     rsph = spherization_radius_formula(mdot, e_wind)
-                    # print(mdots[np.isnan(mdots)])
-                    # mdots[np.isnan(mdots)] = mdot
                     start = time.time()
                     (
                         P_t,
