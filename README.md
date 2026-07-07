@@ -12,9 +12,8 @@ git clone https://github.com/andresgur/field_decay .
 ```
 
 ### Pip Install
-Navigate to the cloned directory and install the package using pip:
+Then assuming you are in the cloned directory you can just pip install it:
 ```bash
-cd field_decay
 pip install .
 ```
 
