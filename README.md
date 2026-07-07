@@ -8,7 +8,7 @@ Formulas for magnetic field suppression due to supercritical accretion.
 ### Git Clone
 To clone the repository, run the following command:
 ```bash
-git clone https://github.com/andresgur/field-decay .
+git clone https://github.com/andresgur/field_decay .
 ```
 
 ### Pip Install
